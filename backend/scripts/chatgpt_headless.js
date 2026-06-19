@@ -132,25 +132,59 @@ export async function askChatGPT(prompt) {
     await sendButton.waitFor({ state: 'visible', timeout: 5000 });
     await sendButton.click();
 
-    console.log('[Playwright] Message sent. Waiting for response to complete (this may take up to 90 seconds)...');
+    console.log('[Playwright] Message sent. Waiting for page navigation to settle...');
 
-    // Wait for response to finish
-    await page.waitForSelector('button[data-testid="send-button"]:not([disabled])', { timeout: 90000 });
+    // ChatGPT navigates to a new URL (e.g. /c/abc123) after sending.
+    // We must wait for that navigation to complete before querying.
+    try {
+      await page.waitForLoadState('networkidle', { timeout: 15000 });
+    } catch (e) {
+      // networkidle can timeout on slow connections, that's OK — continue
+    }
 
-    // Wait an extra half second to let elements stabilize
-    await page.waitForTimeout(800);
+    console.log('[Playwright] Page settled. Waiting for response generation to finish...');
 
-    // Extract the text of the last markdown block
-    const markdownBlocks = page.locator('.markdown');
-    const count = await markdownBlocks.count();
-    
-    if (count === 0) {
-      throw new Error('No response text block (.markdown) was found on the page.');
+    // Poll: wait until the Stop button disappears (it shows during generation)
+    // and wait for at least one .markdown response block to appear.
+    // Timeout: 120 seconds for long responses.
+    const maxWait = 120000;
+    const pollInterval = 1500;
+    const startTime = Date.now();
+    let responseText = '';
+
+    while (Date.now() - startTime < maxWait) {
+      await page.waitForTimeout(pollInterval);
+
+      // Check if a "stop" button is still visible (generation is still running)
+      const stopButton = page.locator('button[data-testid="stop-button"]');
+      const isGenerating = await stopButton.count() > 0;
+
+      if (!isGenerating) {
+        // Generation appears done — try to extract the last response block
+        const markdownBlocks = page.locator('.markdown');
+        const count = await markdownBlocks.count();
+
+        if (count > 0) {
+          const candidate = await markdownBlocks.last().innerText();
+          if (candidate && candidate.trim().length > 0) {
+            // Confirm it is stable by waiting one more cycle and checking again
+            await page.waitForTimeout(1000);
+            const confirmed = await markdownBlocks.last().innerText();
+            if (confirmed === candidate) {
+              responseText = confirmed.trim();
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (!responseText) {
+      throw new Error('Timed out waiting for ChatGPT response. The page may have had an issue.');
     }
 
     console.log('[Playwright] Response received. Extracting text...');
-    const responseText = await markdownBlocks.last().innerText();
-    return responseText.trim();
+    return responseText;
 
   } catch (error) {
     console.error('[Playwright] Automation failed:', error.message);
