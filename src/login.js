@@ -3,67 +3,56 @@ import readline from 'readline';
 import { chromium } from 'playwright';
 import { STEALTH_ARGS, newStealthContext } from './browser.js';
 import { ACTIVE_FILE, sessionFile } from './config.js';
-import { getProvider, PROVIDERS } from './providers/index.js';
+import { getProvider } from './providers/index.js';
 
 const MENU = [
-  { key: 'chatgpt',    label: 'ChatGPT',    host: 'chatgpt.com'          },
-  { key: 'grok',       label: 'Grok',       host: 'grok.com'             },
-  { key: 'gemini',     label: 'Gemini',     host: 'gemini.google.com'    },
-  { key: 'perplexity', label: 'Perplexity', host: 'perplexity.ai'        },
+  { key: 'chatgpt',    label: 'ChatGPT',    host: 'chatgpt.com'       },
+  { key: 'grok',       label: 'Grok',       host: 'grok.com'          },
+  { key: 'gemini',     label: 'Gemini',     host: 'gemini.google.com' },
+  { key: 'perplexity', label: 'Perplexity', host: 'perplexity.ai'     },
 ];
 
-async function selectProvider() {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const question = (rl, q) => new Promise((resolve) => rl.question(q, resolve));
 
-  console.log('\n╔══════════════════════════════════════════════╗');
-  console.log('║        Choose Your AI Provider               ║');
-  console.log('╚══════════════════════════════════════════════╝\n');
+// externalRl — the REPL's readline. We MUST reuse it; creating a second
+// interface on the same stdin garbles input. When null (standalone), we own one.
+export async function login(externalRl = null) {
+  const rl    = externalRl ?? readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ownRl = !externalRl;
 
-  MENU.forEach((p, i) => {
-    const pad = p.label.padEnd(12);
-    console.log(`  ${i + 1})  ${pad}  ${p.host}`);
-  });
+  console.log('\n  ╔══════════════════════════════════════════════╗');
+  console.log('  ║          Choose Your AI Provider             ║');
+  console.log('  ╚══════════════════════════════════════════════╝\n');
+  MENU.forEach((p, i) => console.log(`    ${i + 1})  ${p.label.padEnd(12)}  ${p.host}`));
   console.log();
 
-  return new Promise((resolve) => {
-    rl.question('  Enter 1–4: ', (answer) => {
-      rl.close();
-      const item = MENU[parseInt(answer, 10) - 1];
-      if (!item) {
-        console.error('\nInvalid choice. Run login again.');
-        process.exit(1);
-      }
-      resolve(item.key);
-    });
-  });
-}
+  const answer = (await question(rl, '  Enter 1–4 (or blank to cancel): ')).trim();
 
-export async function login() {
-  const providerKey = await selectProvider();
+  // Graceful aborts — never kill the REPL on a typo.
+  if (!answer) { console.log('\n  Cancelled.\n'); if (ownRl) rl.close(); return; }
+  const item = MENU[parseInt(answer, 10) - 1];
+  if (!item) { console.log('\n  Invalid choice — returning to menu.\n'); if (ownRl) rl.close(); return; }
+
+  const providerKey = item.key;
   const provider    = getProvider(providerKey);
 
-  console.log(`\nA browser window will open → sign in to ${provider.config.name}.`);
-  console.log('Once you see your chat interface, come back here and press ENTER.\n');
+  console.log(`\n  A browser window will open → sign in to ${provider.config.name}.`);
 
-  const browser = await chromium.launch({ headless: false, args: STEALTH_ARGS });
-  const ctx     = await newStealthContext(browser);
-  const page    = await ctx.newPage();
-  await page.goto(provider.config.url);
-
-  await new Promise(resolve => {
-    process.stdin.resume();
-    process.stdin.once('data', () => { process.stdin.pause(); resolve(); });
-  });
-
+  let browser;
   try {
+    browser    = await chromium.launch({ headless: false, args: STEALTH_ARGS });
+    const ctx  = await newStealthContext(browser);
+    const page = await ctx.newPage();
+    await page.goto(provider.config.url);
+
+    await question(rl, '  Once logged in, press ENTER here to save the session... ');
+
     // Wait for background iframes (auth, payment scripts) to settle before saving.
     // storageState() fails if a frame is mid-navigation when it's called.
     console.log('  Saving session...');
     await page.waitForTimeout(3000);
 
     const sFile = sessionFile(providerKey);
-
-    // Retry once — some providers load heavy iframe trees that need extra time.
     try {
       await ctx.storageState({ path: sFile });
     } catch {
@@ -73,12 +62,13 @@ export async function login() {
 
     fs.writeFileSync(ACTIVE_FILE, JSON.stringify({ provider: providerKey }, null, 2));
 
-    console.log(`\n✅ Logged in as: ${provider.config.name}`);
-    console.log(`   Session saved : ${sFile}`);
-    console.log('   You can now run "chat" and "apply" commands.\n');
+    console.log(`\n  ✅ Logged in as ${provider.config.name}`);
+    console.log(`     Session saved: ${sFile}`);
+    console.log('     You can now use /chat and /apply.\n');
   } catch (e) {
-    console.error('✗ Failed to save session:', e.message);
+    console.error('\n  ✗ Login failed:', e.message, '\n');
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
+    if (ownRl) rl.close();
   }
 }

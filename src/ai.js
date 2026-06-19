@@ -15,12 +15,16 @@ function readActiveKey() {
 }
 
 export async function openAiSession(visible = false) {
+  if (!fs.existsSync(ACTIVE_FILE)) {
+    throw new Error('No provider selected yet. Type /login first.');
+  }
+
   _providerKey = readActiveKey();
   const provider = getProvider(_providerKey);
   const sFile    = sessionFile(_providerKey);
 
   if (!fs.existsSync(sFile)) {
-    throw new Error(`No session for ${provider.config.name}. Run:  node agent.js login  first.`);
+    throw new Error(`No session for ${provider.config.name}. Type /login first.`);
   }
 
   const browser = await launchBrowser(visible);
@@ -35,7 +39,7 @@ export async function openAiSession(visible = false) {
     console.log('Ready ✓\n');
   } catch {
     await browser.close();
-    throw new Error(`Login expired for ${provider.config.name}. Run:  node agent.js login  again.`);
+    throw new Error(`Login expired for ${provider.config.name}. Type /login again.`);
   }
 
   return { browser, page, providerName: provider.config.name };

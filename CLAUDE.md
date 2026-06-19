@@ -14,53 +14,62 @@ Always invoke these two skills at the start of every session:
 ```powershell
 npm install                      # install dependencies
 npx playwright install chromium  # download browser binary (one-time)
-
-node agent.js login              # save ChatGPT session to session/session.json
-node agent.js chat               # interactive terminal chat
-node agent.js ask "question"     # one-shot question, prints answer and exits
-node agent.js apply "URL"        # AI-driven job application form filler
-node agent.js apply "URL" --hidden  # same but browser minimized
+node agent.js                    # start interactive REPL
 ```
+
+Inside the REPL: `/login` `/chat` `/apply <url>` `/ask <q>` `/status` `/help` `/exit`
+
+Create `data/profile.json` from `data/profile.example.json` before using `/apply`.
 
 There are no tests or linter configured.
 
 ## Architecture
 
-**Entry point:** `agent.js` — pure CLI router. Parses `process.argv`, switches on the command, delegates to `src/`. No logic lives here.
+**Entry point:** `agent.js` — interactive REPL. Shows a banner, reads slash commands (`/login`, `/chat`, `/apply`, `/ask`, `/status`, `/help`, `/exit`), dispatches to `src/` handlers. Adding a new command = one new entry in the `COMMANDS` object.
 
 **`src/` module map:**
 
 | File | Responsibility |
 |---|---|
-| `src/config.js` | `SESSION_FILE` and `PROFILE_FILE` path constants |
+| `src/config.js` | Path constants: `PROFILE_FILE`, `ACTIVE_FILE`, `sessionFile(key)` |
 | `src/browser.js` | `launchBrowser()`, `newStealthContext()`, stealth args/script/user-agent |
-| `src/gpt.js` | `openGptSession()` — loads session.json into Playwright context, navigates to chatgpt.com; `sendMessage()` — types into `#prompt-textarea`, polls `.markdown` DOM until stable |
-| `src/login.js` | Opens visible Chrome, waits for user to log in manually, calls `ctx.storageState()` to save cookies |
-| `src/chat.js` | readline loop over `sendMessage()` |
-| `src/apply/index.js` | Main apply loop — up to 20 steps, each: scrape → GPT → execute → repeat |
-| `src/apply/scraper.js` | `scrapePageState()` — runs `page.evaluate()` to extract all inputs, selects, checkboxes, canvases, buttons from the DOM |
-| `src/apply/executor.js` | `executeAction()` dispatches fill/select/click/check/upload/signature; `drawSignature()` simulates cursive mouse path on canvas; `autoHandleSpecials()` catches file inputs and consent checkboxes GPT may miss |
-| `src/apply/prompt.js` | `buildAgentPrompt()` — constructs the GPT prompt with profile + page state; `sanitizeGptJson()` — manual char-by-char parser that escapes control chars inside JSON strings before `JSON.parse` |
+| `src/ai.js` | `openAiSession()` — reads active provider from `session/active.json`, loads session, navigates to provider URL; `sendMessage()` — delegates to active provider's sendMessage |
+| `src/login.js` | Terminal menu to pick provider, opens browser, waits for user to log in, saves `session/{provider}.json` + `session/active.json` |
+| `src/chat.js` | Interactive chat loop; accepts optional `externalRl` to share the REPL's readline instance (returns to REPL on exit instead of killing the process) |
+| `src/providers/index.js` | `PROVIDERS` map, `getProvider(key)`, shared `waitForStable()` polling helper |
+| `src/providers/chatgpt.js` | ChatGPT-specific selectors and `sendMessage` |
+| `src/providers/grok.js` | Grok — ProseMirror input (`.ProseMirror`), `keyboard.type()`, `[data-testid="assistant-message"]` |
+| `src/providers/gemini.js` | Gemini — contenteditable input with fill→type fallback |
+| `src/providers/perplexity.js` | Perplexity — textarea input, `.prose` response |
+| `src/apply/index.js` | Apply loop — research phase then up to 20 scrape→AI→execute steps |
+| `src/apply/research.js` | `researchJob()` — asks AI to extract company info, salary, matching skills before form filling |
+| `src/apply/scraper.js` | `scrapePageState()` — DOM snapshot of all inputs, selects, canvases, buttons |
+| `src/apply/executor.js` | `executeAction()` dispatches fill/select/click/check/upload/signature; `drawSignature()` draws cursive on canvas |
+| `src/apply/prompt.js` | `buildAgentPrompt()` with research context injection; `sanitizeGptJson()` char-by-char JSON sanitizer |
 
-**Data flow for `apply`:**
+**Provider session files:**
+- `session/active.json` — `{ "provider": "grok" }` — which provider is active
+- `session/session.json` — ChatGPT (legacy name kept for backward compat)
+- `session/grok.json`, `session/gemini.json`, `session/perplexity.json` — other providers
+
+**Data flow for `/apply`:**
 ```
-agent.js → apply/index.js
-  ├─ openGptSession()        → hidden Browser 1 (ChatGPT)
+agent.js REPL → apply/index.js
+  ├─ openAiSession()         → hidden Browser 1 (active AI provider)
   ├─ launchBrowser(visible)  → visible Browser 2 (job form)
-  └─ loop:
+  ├─ researchJob()           → AI researches company, salary, matching skills (once)
+  └─ loop (up to 20 steps):
        scrapePageState()     → structured DOM snapshot
-       sendMessage(prompt)   → GPT returns JSON actions
+       buildAgentPrompt()    → profile + research + page state
+       sendMessage()         → AI returns JSON actions
        sanitizeGptJson()     → safe parse
        executeAction()       → mutates Browser 2
        autoHandleSpecials()  → catches missed file/checkbox fields
 ```
 
-**Why two browsers:** Browser 1 holds the authenticated ChatGPT tab. Browser 2 navigates the job application. They run concurrently — GPT is the brain, Browser 2 is the hands.
-
 ## Key constraints
 
 - **ESM only** — `"type": "module"` in package.json. Use `import/export`, never `require()`.
-- **No API key** — ChatGPT is automated via browser, not the OpenAI API. Session auth lives in `session/session.json`.
-- **Browser is always visible by default** — `launchBrowser(visible = true)`. Pass `--hidden` flag to minimize. The GPT session browser is always hidden (hardcoded `false` in `apply/index.js`).
-- **`session/session.json`** and **`data/profile.json`** are gitignored — never commit them. `data/profile.example.json` is the committed template.
-- **`__dirname` workaround** — ESM has no `__dirname`. Every file that needs paths uses `fileURLToPath(import.meta.url)`. `src/config.js` exports the two canonical paths; all other files import from there.
+- **No API key** — AI providers are automated via browser session, not APIs. Session auth lives in `session/*.json`.
+- **Provider selectors may drift** — each `src/providers/*.js` file has DOM selectors that may need updating if a provider redesigns their UI. Comments in each file note what to inspect.
+- **`__dirname` workaround** — ESM has no `__dirname`. Every file that needs paths uses `fileURLToPath(import.meta.url)`. `src/config.js` exports canonical paths; all other files import from there.

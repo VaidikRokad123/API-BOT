@@ -8,17 +8,16 @@ export const config = {
   readySelector: 'textarea',
 };
 
+// Answer CONTAINER (not .prose p) so we capture the whole answer, not just the last line.
+const RESPONSE = '.prose';
+
 export async function sendMessage(page, text) {
+  const before = await page.locator(RESPONSE).count();
+
   const input = page.locator('textarea').first();
   await input.click();
   await input.fill(text);
   await page.keyboard.press('Enter');
 
-  await page.waitForTimeout(1000);
-
-  return waitForStable(page, [
-    '.prose p',
-    '[class*="answer"] p',
-    '[data-testid="answer-header"]',
-  ].join(', '), { stableFor: 2000 });
+  return waitForStable(page, RESPONSE, { afterCount: before, stableFor: 1500 });
 }

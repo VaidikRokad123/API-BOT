@@ -1,46 +1,65 @@
 import { openAiSession, sendMessage } from './ai.js';
 
-export async function chat(visible = true) {
+// externalRl — passed from the main REPL so we share the same stdin.
+// When null, chat owns the readline and exits the process on quit.
+export async function chat(visible = true, externalRl = null) {
   let browser, page, providerName;
   try {
     ({ browser, page, providerName } = await openAiSession(visible));
   } catch (e) {
-    console.error('✗', e.message); process.exit(1);
+    console.error('\n  ✗', e.message, '\n');
+    if (!externalRl) process.exit(1);
+    return;
   }
 
   const readline = (await import('readline')).default;
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl    = externalRl ?? readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ownRl = !externalRl;
 
   const label = providerName.padEnd(10);
-  console.log('╔════════════════════════════════════════╗');
-  console.log(`║  ${label} Interactive Console        ║`);
-  console.log('║  All messages share memory this session║');
-  console.log('║  Type "exit" or Ctrl+C to quit         ║');
-  console.log('╚════════════════════════════════════════╝\n');
+  console.log('\n  ╔══════════════════════════════════════════╗');
+  console.log(`  ║  ${label} Chat                          ║`);
+  console.log('  ║  All messages share memory this session  ║');
+  console.log('  ║  Type "exit" to return to main menu      ║');
+  console.log('  ╚══════════════════════════════════════════╝\n');
 
-  const ask = () => {
-    rl.question('You: ', async input => {
-      const prompt = input.trim();
-      if (!prompt) { ask(); return; }
+  const QUIT = new Set(['exit', 'quit', '/exit', '/quit']);
 
-      if (prompt.toLowerCase() === 'exit') {
-        console.log('\nClosing... Goodbye!');
-        await browser.close(); rl.close(); process.exit(0);
-      }
+  await new Promise((resolve) => {
+    const ask = () => {
+      rl.question('You: ', async (input) => {
+        const text = input.trim();
+        if (!text) { ask(); return; }
 
-      try {
-        process.stdout.write(`${providerName}: thinking...\r`);
-        const response = await sendMessage(page, prompt);
-        process.stdout.write('\x1B[2K\r');
-        console.log(`${providerName}: ` + response);
-        console.log('─'.repeat(60) + '\n');
-      } catch (e) {
-        console.error('\n[Error]', e.message, '\n');
-      }
-      ask();
-    });
-  };
+        if (QUIT.has(text.toLowerCase())) {
+          console.log('\n  Closing chat... returning to main menu.\n');
+          await browser.close().catch(() => {});
+          resolve();
+          return;
+        }
 
-  ask();
-  rl.on('close', async () => { await browser.close(); process.exit(0); });
+        try {
+          process.stdout.write(`${providerName}: thinking...\r`);
+          const response = await sendMessage(page, text);
+          process.stdout.write('\x1B[2K\r');
+          console.log(`${providerName}: ${response}`);
+          console.log('─'.repeat(60) + '\n');
+        } catch (e) {
+          process.stdout.write('\x1B[2K\r');
+          // If the browser/page was closed, bail to the menu instead of looping errors.
+          if (!browser.isConnected() || /closed/i.test(e.message)) {
+            console.error('\n  Browser was closed — returning to main menu.\n');
+            await browser.close().catch(() => {});
+            resolve();
+            return;
+          }
+          console.error('\n  [Error]', e.message, '\n');
+        }
+        ask();
+      });
+    };
+    ask();
+  });
+
+  if (ownRl) { rl.close(); process.exit(0); }
 }

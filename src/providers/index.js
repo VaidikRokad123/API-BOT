@@ -12,16 +12,29 @@ export function getProvider(key) {
   return PROVIDERS[key];
 }
 
-// Shared stabilisation helper — polls selector until text stops changing.
+// Shared response reader. Two phases:
+//   1. (if afterCount set) wait until a NEW response element appears — this is
+//      what prevents reading the PREVIOUS turn's answer on multi-turn chats.
+//   2. poll the newest element until its text stops changing.
 export async function waitForStable(page, selector, {
-  poll       = 500,
-  stableFor  = 1500,
-  maxWait    = 120_000,
+  poll         = 400,
+  stableFor    = 1200,
+  maxWait      = 120_000,
   stopSelector = null,
+  afterCount   = null,
 } = {}) {
   const start = Date.now();
-  let lastText = '', stableMs = 0;
 
+  // Phase 1 — ensure the response for THIS message has actually appeared.
+  if (afterCount !== null) {
+    while (Date.now() - start < maxWait) {
+      if (await page.locator(selector).count() > afterCount) break;
+      await page.waitForTimeout(poll);
+    }
+  }
+
+  // Phase 2 — wait for the newest element's text to settle.
+  let lastText = '', stableMs = 0;
   while (Date.now() - start < maxWait) {
     await page.waitForTimeout(poll);
 

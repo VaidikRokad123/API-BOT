@@ -8,7 +8,12 @@ export const config = {
   readySelector: 'div[contenteditable="true"]',
 };
 
+// Response CONTAINER (not <p>) so we capture the full answer, not just the last line.
+const RESPONSE = '.model-response-text';
+
 export async function sendMessage(page, text) {
+  const before = await page.locator(RESPONSE).count();
+
   // Gemini's input is a contenteditable div — fill() works on most builds;
   // keyboard.type() is the fallback if fill() leaves the box empty.
   const input = page.locator('div[contenteditable="true"]').first();
@@ -31,12 +36,5 @@ export async function sendMessage(page, text) {
     await page.keyboard.press('Enter');
   }
 
-  await page.waitForTimeout(1000);
-
-  return waitForStable(page, [
-    '.model-response-text',
-    'message-content p',
-    '[data-response-index] p',
-    '.response-content p',
-  ].join(', '), { stableFor: 2000 });
+  return waitForStable(page, RESPONSE, { afterCount: before, stableFor: 1500 });
 }
