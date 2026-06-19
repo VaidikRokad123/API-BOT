@@ -66,6 +66,7 @@ Run `node agent.js` and you get an interactive prompt:
 | Command | What it does |
 |---|---|
 | `/login` | Pick a provider, open a browser, log in manually, save the session |
+| `/model [provider]` | Choose or switch the active AI provider (accepts name, index, or prompts if blank) |
 | `/chat` | Interactive chat with the active provider (type `exit` to return) |
 | `/ask <question>` | One-shot question — prints the answer and returns to the menu |
 | `/council <question>` | Ask **all** logged-in providers at once, then merge their answers |
@@ -250,7 +251,9 @@ node agent.js  →  interactive REPL (slash commands)
 
 /login   → pick provider → browser opens → you log in → saves session/<provider>.json + active.json
 
-/chat    → loads active session → opens provider site → readline loop
+/model   → select or specify active provider → saves active.json (warns & offers /login if session missing)
+
+/chat    → loads active session → opens provider site (warns & offers /login if session expired) → readline loop
              You type → agent types into the provider's input → waits for the
              response to stabilize → prints it
 
@@ -261,7 +264,7 @@ node agent.js  →  interactive REPL (slash commands)
 
 **Why not use an official API?** This drives your **existing logged-in account** through a real browser. No API key, no cost, no extra rate limits beyond normal usage.
 
-**Switching providers:** run `/login` again and pick a different one. The last provider you logged into becomes the active one (`/chat`, `/ask`, `/apply` all use it).
+**Switching providers:** Run `/model` (or `/model <provider>`) to switch between providers without logging in again, provided the session exists. If a session is missing or expired, `/model` or `/chat` will issue a warning and prompt you to log in immediately.
 
 ---
 
