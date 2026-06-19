@@ -76,6 +76,15 @@ const COMMANDS = {
     },
   },
 
+  '/model': {
+    usage:   '/model [provider]',
+    desc:    'Choose or switch the active AI provider',
+    handler: async (args, rl) => {
+      const { selectModel } = await import('./src/login.js');
+      await selectModel(rl, args);
+    },
+  },
+
   '/chat': {
     usage:   '/chat',
     desc:    'Start an interactive chat with the active provider',

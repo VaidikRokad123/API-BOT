@@ -5,7 +5,7 @@ import { STEALTH_ARGS, newStealthContext } from './browser.js';
 import { ACTIVE_FILE, sessionFile } from './config.js';
 import { getProvider } from './providers/index.js';
 
-const MENU = [
+export const MENU = [
   { key: 'chatgpt',    label: 'ChatGPT',    host: 'chatgpt.com'       },
   { key: 'grok',       label: 'Grok',       host: 'grok.com'          },
   { key: 'gemini',     label: 'Gemini',     host: 'gemini.google.com' },
@@ -17,24 +17,32 @@ const question = (rl, q) => new Promise((resolve) => rl.question(q, resolve));
 
 // externalRl — the REPL's readline. We MUST reuse it; creating a second
 // interface on the same stdin garbles input. When null (standalone), we own one.
-export async function login(externalRl = null) {
+export async function login(externalRl = null, providerKey = null) {
   const rl    = externalRl ?? readline.createInterface({ input: process.stdin, output: process.stdout });
   const ownRl = !externalRl;
 
-  console.log('\n  ╔══════════════════════════════════════════════╗');
-  console.log('  ║          Choose Your AI Provider             ║');
-  console.log('  ╚══════════════════════════════════════════════╝\n');
-  MENU.forEach((p, i) => console.log(`    ${i + 1})  ${p.label.padEnd(12)}  ${p.host}`));
-  console.log();
+  let item;
+  if (providerKey) {
+    item = MENU.find(p => p.key === providerKey);
+  }
 
-  const answer = (await question(rl, `  Enter 1–${MENU.length} (or blank to cancel): `)).trim();
+  if (!item) {
+    console.log('\n  ╔══════════════════════════════════════════════╗');
+    console.log('  ║          Choose Your AI Provider             ║');
+    console.log('  ╚══════════════════════════════════════════════╝\n');
+    MENU.forEach((p, i) => console.log(`    ${i + 1})  ${p.label.padEnd(12)}  ${p.host}`));
+    console.log();
 
-  // Graceful aborts — never kill the REPL on a typo.
-  if (!answer) { console.log('\n  Cancelled.\n'); if (ownRl) rl.close(); return; }
-  const item = MENU[parseInt(answer, 10) - 1];
+    const answer = (await question(rl, `  Enter 1–${MENU.length} (or blank to cancel): `)).trim();
+
+    // Graceful aborts — never kill the REPL on a typo.
+    if (!answer) { console.log('\n  Cancelled.\n'); if (ownRl) rl.close(); return; }
+    item = MENU[parseInt(answer, 10) - 1];
+  }
+
   if (!item) { console.log('\n  Invalid choice — returning to menu.\n'); if (ownRl) rl.close(); return; }
 
-  const providerKey = item.key;
+  providerKey = item.key;
   const provider    = getProvider(providerKey);
 
   console.log(`\n  A browser window will open → sign in to ${provider.config.name}.`);
@@ -72,4 +80,59 @@ export async function login(externalRl = null) {
     if (browser) await browser.close();
     if (ownRl) rl.close();
   }
+}
+
+export async function selectModel(externalRl = null, modelArg = '') {
+  const rl    = externalRl ?? readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ownRl = !externalRl;
+
+  let item;
+  const arg = modelArg.trim().toLowerCase();
+
+  if (arg) {
+    // Try to match by index first
+    const idx = parseInt(arg, 10);
+    if (!isNaN(idx) && idx >= 1 && idx <= MENU.length) {
+      item = MENU[idx - 1];
+    } else {
+      // Match by key or label
+      item = MENU.find(p => p.key === arg || p.label.toLowerCase() === arg);
+    }
+
+    if (!item) {
+      console.log(`\n  Invalid model name or index "${modelArg}".`);
+      console.log(`  Valid models: ${MENU.map(p => p.key).join(', ')}\n`);
+      if (ownRl) rl.close();
+      return;
+    }
+  } else {
+    console.log('\n  ╔══════════════════════════════════════════════╗');
+    console.log('  ║              Select AI Model                 ║');
+    console.log('  ╚══════════════════════════════════════════════╝\n');
+    MENU.forEach((p, i) => console.log(`    ${i + 1})  ${p.label.padEnd(12)}  ${p.host}`));
+    console.log();
+
+    const answer = (await question(rl, `  Enter 1–${MENU.length} (or blank to cancel): `)).trim();
+    if (!answer) { console.log('\n  Cancelled.\n'); if (ownRl) rl.close(); return; }
+    item = MENU[parseInt(answer, 10) - 1];
+    if (!item) { console.log('\n  Invalid choice — returning to menu.\n'); if (ownRl) rl.close(); return; }
+  }
+
+  const providerKey = item.key;
+  fs.writeFileSync(ACTIVE_FILE, JSON.stringify({ provider: providerKey }, null, 2));
+  console.log(`\n  Active model switched to: ${item.label}`);
+
+  // Check if session file exists
+  const sFile = sessionFile(providerKey);
+  if (!fs.existsSync(sFile)) {
+    console.log(`\n  ⚠️  Warning: Session for ${item.label} is missing.`);
+    const answer = (await question(rl, `  Would you like to log in now? (y/n): `)).trim().toLowerCase();
+    if (answer.startsWith('y')) {
+      await login(rl, providerKey);
+    }
+  } else {
+    console.log(`  Session found: ✓\n`);
+  }
+
+  if (ownRl) rl.close();
 }

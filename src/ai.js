@@ -6,7 +6,7 @@ import { getProvider } from './providers/index.js';
 // Active provider key for this process — set once by openAiSession().
 let _providerKey = null;
 
-function readActiveKey() {
+export function readActiveKey() {
   try {
     return JSON.parse(fs.readFileSync(ACTIVE_FILE, 'utf8')).provider || 'chatgpt';
   } catch {

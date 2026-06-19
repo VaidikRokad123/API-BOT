@@ -1,4 +1,5 @@
-import { openAiSession, sendMessage } from './ai.js';
+import { openAiSession, sendMessage, readActiveKey } from './ai.js';
+import { getProvider } from './providers/index.js';
 
 // externalRl — passed from the main REPL so we share the same stdin.
 // When null, chat owns the readline and exits the process on quit.
@@ -7,8 +8,28 @@ export async function chat(visible = true, externalRl = null) {
   try {
     ({ browser, page, providerName } = await openAiSession(visible));
   } catch (e) {
-    console.error('\n  ✗', e.message, '\n');
-    if (!externalRl) process.exit(1);
+    console.error(`\n  ⚠️  Warning: ${e.message}\n`);
+
+    const readline = (await import('readline')).default;
+    const rl    = externalRl ?? readline.createInterface({ input: process.stdin, output: process.stdout });
+    const ownRl = !externalRl;
+
+    const activeKey = readActiveKey();
+    let providerNameString = 'the active provider';
+    try {
+      const provider = getProvider(activeKey);
+      providerNameString = provider.config.name;
+    } catch {}
+
+    const question = (q) => new Promise((resolve) => rl.question(q, resolve));
+    const answer = (await question(`  Would you like to log in to ${providerNameString} now? (y/n): `)).trim().toLowerCase();
+
+    if (answer.startsWith('y')) {
+      const { login } = await import('./login.js');
+      await login(rl, activeKey);
+    }
+
+    if (ownRl) rl.close();
     return;
   }
 
