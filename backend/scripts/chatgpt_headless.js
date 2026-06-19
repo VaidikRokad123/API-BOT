@@ -4,302 +4,239 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 const sessionPath = path.join(__dirname, 'session.json');
 
-// Ensure Playwright uses a local D:\ directory for browsers if set by user
-if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
-  process.env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH;
-}
+// ─── Stealth Launch Args ────────────────────────────────────────────────────
+const STEALTH_ARGS = [
+  '--disable-blink-features=AutomationControlled',
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+];
 
+const STEALTH_SCRIPT = () => {
+  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+};
+
+// ─── One-time Login Setup ───────────────────────────────────────────────────
 export async function setupSession() {
+  console.log('\n====================================================');
+  console.log('  ChatGPT Session Setup');
   console.log('====================================================');
-  console.log('ChatGPT Headless Browser Login Session Setup');
-  console.log('====================================================');
-  console.log('Starting headful Chrome browser...');
-  console.log('Please log in to your ChatGPT account in the browser window.');
-  console.log('Ensure you click Log In and are fully signed in.');
-  console.log('====================================================');
+  console.log('A browser window will open. Sign in to ChatGPT.');
+  console.log('Once fully logged in, come back here and press ENTER.');
+  console.log('====================================================\n');
 
   const browser = await chromium.launch({
-    headless: false, // Visible window so user can log in
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--no-sandbox',
-      '--disable-setuid-sandbox'
-    ]
+    headless: false,
+    args: STEALTH_ARGS,
   });
 
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 720 }
+    viewport: { width: 1280, height: 720 },
   });
-
-  // Inject stealth script to bypass Cloudflare turnstile
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', {
-      get: () => undefined,
-    });
-  });
+  await context.addInitScript(STEALTH_SCRIPT);
 
   const page = await context.newPage();
   await page.goto('https://chatgpt.com');
 
-  console.log('\n[Action Required]');
-  console.log('1. Go to the opened Chrome browser.');
-  console.log('2. Sign in to your ChatGPT account.');
-  console.log('3. Once you are fully logged in and see the chat history/sidebar,');
-  console.log('   return to this terminal and press [ENTER] to save your session.');
-  console.log('====================================================');
+  console.log('[Action Required]');
+  console.log('1. Log in to your ChatGPT account in the browser.');
+  console.log('2. Once you see your chat history, press ENTER here.\n');
 
-  // Wait for manual confirmation via stdin
-  await new Promise((resolve) => {
+  await new Promise(resolve => {
     process.stdin.resume();
-    process.stdin.once('data', () => {
-      process.stdin.pause();
-      resolve();
-    });
+    process.stdin.once('data', () => { process.stdin.pause(); resolve(); });
   });
 
   try {
-    console.log('[Setup] Saving session state...');
-    
-    // Save cookies and storage state to D: drive
     await context.storageState({ path: sessionPath });
-    console.log(`[Setup] Success! Session saved to: ${sessionPath}`);
-  } catch (error) {
-    console.error('[Setup] Error saving session state:', error.message);
+    console.log(`\n✓ Session saved to: ${sessionPath}`);
+  } catch (e) {
+    console.error('✗ Failed to save session:', e.message);
   } finally {
     await browser.close();
   }
 }
 
-export async function askChatGPT(prompt) {
+// ─── Open a Persistent Browser Session ─────────────────────────────────────
+export async function openSession(visible = false) {
   if (!fs.existsSync(sessionPath)) {
-    throw new Error('No active session found. Please run "npm run login" first to log in to ChatGPT.');
+    throw new Error('No session found. Run "npm run login" first.');
   }
 
-  // Check if --visible flag is passed (shows the browser window fully)
-  const isVisible = process.argv.includes('--visible');
-  console.log(`[Playwright] Launching browser (${isVisible ? 'visible' : 'minimized background'})...`);
-
-  // IMPORTANT: We always launch headless:false because Cloudflare blocks headless Chrome.
-  // Instead we use --start-minimized to keep the window in the taskbar, invisible to user.
   const browser = await chromium.launch({
     headless: false,
     args: [
-      '--disable-blink-features=AutomationControlled',
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      ...(isVisible ? [] : ['--start-minimized']),
-    ]
+      ...STEALTH_ARGS,
+      ...(visible ? [] : ['--start-minimized']),
+    ],
   });
 
-  let page;
+  const context = await browser.newContext({
+    storageState: sessionPath,
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 720 },
+  });
+  await context.addInitScript(STEALTH_SCRIPT);
+
+  const page = await context.newPage();
+  console.log('[Session] Navigating to chatgpt.com...');
+  await page.goto('https://chatgpt.com');
+
+  // Verify we are logged in
   try {
-    const context = await browser.newContext({
-      storageState: sessionPath,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 720 }
-    });
+    await page.waitForSelector('#prompt-textarea', { timeout: 15000 });
+  } catch {
+    await browser.close();
+    throw new Error('Could not find input. Session may have expired. Run "npm run login" again.');
+  }
 
-    // Inject stealth script
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined,
-      });
-    });
+  console.log('[Session] Ready.\n');
+  return { browser, page };
+}
 
-    page = await context.newPage();
-    
-    console.log('[Playwright] Navigating to https://chatgpt.com...');
-    await page.goto('https://chatgpt.com');
+// ─── Send a Message on an Existing Page ────────────────────────────────────
+export async function sendMessage(page, prompt) {
+  // Type into the existing conversation (ChatGPT keeps context)
+  const textarea = page.locator('#prompt-textarea');
+  await textarea.click();
+  await textarea.fill(prompt);
 
-    // Wait for text input area
-    console.log('[Playwright] Waiting for input selector (#prompt-textarea)...');
-    try {
-      await page.waitForSelector('#prompt-textarea', { timeout: 15000 });
-    } catch (e) {
-      throw new Error('ChatGPT page input (#prompt-textarea) not found. Your session may have expired. Please run "npm run login" again.');
+  const sendBtn = page.locator('button[data-testid="send-button"]');
+  await sendBtn.waitFor({ state: 'visible', timeout: 5000 });
+  await sendBtn.click();
+
+  // Wait for page navigation (ChatGPT redirects to /c/... on first message)
+  try {
+    await page.waitForLoadState('networkidle', { timeout: 10000 });
+  } catch { /* ignore timeout — just continue */ }
+
+  // Fast-poll: check every 500ms if stop button is gone + response is stable
+  const maxWait = 120_000;
+  const fastPoll = 500;
+  const start = Date.now();
+  let lastText = '';
+  let stableFor = 0;
+  const STABLE_MS = 1500; // must be unchanged for 1.5s to count as done
+
+  while (Date.now() - start < maxWait) {
+    await page.waitForTimeout(fastPoll);
+
+    // If stop button still visible, generation is in progress
+    const stopping = await page.locator('button[data-testid="stop-button"]').count();
+    if (stopping > 0) {
+      stableFor = 0; // reset stability timer
+      continue;
     }
 
-    // Input prompt
-    console.log('[Playwright] Typing prompt...');
-    const textarea = page.locator('#prompt-textarea');
-    await textarea.fill(prompt);
+    // No stop button — check the last response block
+    const blocks = page.locator('.markdown');
+    const count = await blocks.count();
+    if (count === 0) continue;
 
-    // Wait for send button to be ready and click it
-    console.log('[Playwright] Clicking send button...');
-    const sendButton = page.locator('button[data-testid="send-button"]');
-    await sendButton.waitFor({ state: 'visible', timeout: 5000 });
-    await sendButton.click();
+    const currentText = await blocks.last().innerText();
+    if (!currentText?.trim()) continue;
 
-    console.log('[Playwright] Message sent. Waiting for page navigation to settle...');
-
-    // ChatGPT navigates to a new URL (e.g. /c/abc123) after sending.
-    // We must wait for that navigation to complete before querying.
-    try {
-      await page.waitForLoadState('networkidle', { timeout: 15000 });
-    } catch (e) {
-      // networkidle can timeout on slow connections, that's OK — continue
-    }
-
-    console.log('[Playwright] Page settled. Waiting for response generation to finish...');
-
-    // Poll: wait until the Stop button disappears (it shows during generation)
-    // and wait for at least one .markdown response block to appear.
-    // Timeout: 120 seconds for long responses.
-    const maxWait = 120000;
-    const pollInterval = 1500;
-    const startTime = Date.now();
-    let responseText = '';
-
-    while (Date.now() - startTime < maxWait) {
-      await page.waitForTimeout(pollInterval);
-
-      // Check if a "stop" button is still visible (generation is still running)
-      const stopButton = page.locator('button[data-testid="stop-button"]');
-      const isGenerating = await stopButton.count() > 0;
-
-      if (!isGenerating) {
-        // Generation appears done — try to extract the last response block
-        const markdownBlocks = page.locator('.markdown');
-        const count = await markdownBlocks.count();
-
-        if (count > 0) {
-          const candidate = await markdownBlocks.last().innerText();
-          if (candidate && candidate.trim().length > 0) {
-            // Confirm it is stable by waiting one more cycle and checking again
-            await page.waitForTimeout(1000);
-            const confirmed = await markdownBlocks.last().innerText();
-            if (confirmed === candidate) {
-              responseText = confirmed.trim();
-              break;
-            }
-          }
-        }
+    if (currentText === lastText) {
+      stableFor += fastPoll;
+      if (stableFor >= STABLE_MS) {
+        return currentText.trim(); // ✓ Stable — return it
       }
+    } else {
+      lastText = currentText;
+      stableFor = 0; // text changed, reset
     }
+  }
 
-    if (!responseText) {
-      throw new Error('Timed out waiting for ChatGPT response. The page may have had an issue.');
-    }
+  throw new Error('Timed out waiting for ChatGPT response.');
+}
 
-    console.log('[Playwright] Response received. Extracting text...');
-    return responseText;
-
-  } catch (error) {
-    console.error('[Playwright] Automation failed:', error.message);
-    
-    // Save screenshot for debugging
-    if (page) {
-      const screenshotPath = path.join(process.cwd(), 'debug_screenshot.png');
-      try {
-        await page.screenshot({ path: screenshotPath });
-        console.log(`[Playwright] DEBUG: Captured screenshot of the stuck browser state to: ${screenshotPath}`);
-      } catch (e) {
-        console.error('[Playwright] Could not capture debug screenshot:', e.message);
-      }
-    }
-    throw error;
+// ─── Single-shot API helper (used by Express server) ───────────────────────
+export async function askChatGPT(prompt) {
+  const { browser, page } = await openSession(process.argv.includes('--visible'));
+  try {
+    return await sendMessage(page, prompt);
   } finally {
     await browser.close();
-    console.log('[Playwright] Browser closed.');
   }
 }
 
-// Interactive REPL loop
+// ─── Interactive Chat Loop (persistent session) ─────────────────────────────
 async function interactiveChat() {
   const readline = (await import('readline')).default;
-  const isVisible = process.argv.includes('--visible');
+  const visible = process.argv.includes('--visible');
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  let browser, page;
+  try {
+    ({ browser, page } = await openSession(visible));
+  } catch (e) {
+    console.error('✗', e.message);
+    process.exit(1);
+  }
 
-  console.log('\n============================================');
-  console.log('  ChatGPT Interactive Console');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
   console.log('============================================');
-  console.log('  Type your message and press Enter.');
-  console.log('  Type "exit" or press Ctrl+C to quit.');
+  console.log('  ChatGPT Interactive Console');
+  console.log('  Browser open — messages share memory!');
+  console.log('  Type "exit" or Ctrl+C to quit.');
   console.log('============================================\n');
 
   const ask = () => {
-    rl.question('You: ', async (input) => {
+    rl.question('You: ', async input => {
       const prompt = input.trim();
-
-      if (!prompt) {
-        ask();
-        return;
-      }
+      if (!prompt) { ask(); return; }
 
       if (prompt.toLowerCase() === 'exit') {
-        console.log('\nGoodbye!');
+        console.log('\nClosing browser and exiting...');
+        await browser.close();
         rl.close();
         process.exit(0);
       }
 
       try {
-        // Temporarily inject --visible into argv if flag was set
-        if (isVisible && !process.argv.includes('--visible')) {
-          process.argv.push('--visible');
-        }
-
-        process.stdout.write('\nGPT: [thinking...]\r');
-        const response = await askChatGPT(prompt);
-
-        // Clear the thinking line and print response
-        process.stdout.write('\x1B[2K\r'); // Clear current line
-        console.log('\nGPT: ' + response);
-        console.log('\n' + '─'.repeat(50));
-      } catch (err) {
-        console.error('\n[Error]', err.message);
+        process.stdout.write('GPT: thinking...\r');
+        const response = await sendMessage(page, prompt);
+        process.stdout.write('\x1B[2K\r'); // clear "thinking" line
+        console.log('GPT: ' + response);
+        console.log('─'.repeat(50) + '\n');
+      } catch (e) {
+        console.error('\n[Error]', e.message, '\n');
       }
 
-      // Continue asking
       ask();
     });
   };
 
   ask();
 
-  // Handle Ctrl+C cleanly
-  rl.on('close', () => {
-    console.log('\nSession ended. Goodbye!');
+  rl.on('close', async () => {
+    await browser.close();
     process.exit(0);
   });
 }
 
-// Support running directly from command line
+// ─── CLI Entry Point ────────────────────────────────────────────────────────
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
 
   if (mode === 'login') {
     setupSession();
   } else if (mode === 'test') {
-    // Single-shot test with a prompt from CLI args
-    const testPrompt = process.argv[3] || 'Hello, reply in 5 words.';
-    console.log(`[Test] Sending: "${testPrompt}"`);
-    askChatGPT(testPrompt)
-      .then(res => {
-        console.log('\n─── ChatGPT Response ─────────────────────────');
-        console.log(res);
-        console.log('──────────────────────────────────────────────');
-      })
-      .catch(err => {
-        console.error('\n[Test] Failed:', err.message);
-      });
+    const prompt = process.argv[3] || 'Hello, reply in 5 words.';
+    console.log(`[Test] Sending: "${prompt}"\n`);
+    askChatGPT(prompt)
+      .then(r => { console.log('GPT: ' + r); })
+      .catch(e => { console.error('[Error]', e.message); });
   } else if (mode === 'chat') {
-    // Interactive persistent chat loop
     interactiveChat();
   } else {
-    console.log('');
-    console.log('Usage:');
-    console.log('  node chatgpt_headless.js login             Log in and save session');
-    console.log('  node chatgpt_headless.js test "prompt"     Send one message and exit');
-    console.log('  node chatgpt_headless.js chat              Interactive chat loop (stays open)');
-    console.log('  Add --visible to any command to show the browser window');
-    console.log('');
+    console.log('\nUsage:');
+    console.log('  node chatgpt_headless.js login          Log in and save session');
+    console.log('  node chatgpt_headless.js test "prompt"  Send one message and exit');
+    console.log('  node chatgpt_headless.js chat           Interactive loop with memory');
+    console.log('  Add --visible to any command to show the browser\n');
   }
 }
