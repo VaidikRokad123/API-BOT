@@ -22,13 +22,40 @@ export function sanitizeGptJson(raw) {
   return JSON.parse(result);
 }
 
-export function buildAgentPrompt(profile, pageState, step) {
+export function buildAgentPrompt(profile, pageState, step, research = null) {
+  const researchBlock = research ? `
+JOB RESEARCH (use this to tailor every answer):
+Company      : ${research.companyName}
+Role         : ${research.jobTitle}
+Company Info : ${research.companyContext}
+Key JD Reqs  : ${research.keyRequirements?.join(', ')}
+Matched Skills (priority order): ${research.matchingSkills?.join(', ')}
+Positioning  : ${research.positioningStatement}
+Talking Points: ${research.companyTalkingPoints?.join(' | ')}
+
+SALARY RULES:
+- If the form asks for expected/desired salary → use: "${research.salaryToQuote ?? research.salaryFallback}"
+- If the salary field has a range (min/max) and you are unsure → write: "${research.salaryFallback}"
+- Never quote above market — always match or go slightly lower to maximise selection chances.
+
+SKILLS RULES:
+- In any free-text skills field → list matched skills first: ${research.matchingSkills?.join(', ')}
+- In checkbox/multi-select skill lists → check every skill that appears in matched skills list.
+- In "primary skill" dropdowns → pick the top matched skill: ${research.matchingSkills?.[0]}.
+
+OPEN-ENDED ANSWER RULES:
+- "Why this company?" → reference: ${research.companyTalkingPoints?.[0] ?? research.companyName}
+- "Why this role?" → connect candidate's ${profile.currentRole} background to: ${research.keyRequirements?.[0]}
+- Cover letter / summary → mention company by name, cite a specific JD requirement, keep under 200 words.
+- Any question about strengths → lead with: ${research.matchingSkills?.slice(0, 2).join(' and ')}.
+` : '';
+
   return `
 You are an AI job application agent on step ${step}. Analyze the current page and return ONLY a raw JSON object — no markdown, no code fences.
 
 CANDIDATE PROFILE:
 ${JSON.stringify(profile, null, 2)}
-
+${researchBlock}
 CURRENT PAGE:
 URL: ${pageState.url}
 Title: ${pageState.title}

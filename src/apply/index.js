@@ -7,6 +7,7 @@ import { PROFILE_FILE } from '../config.js';
 import { scrapePageState } from './scraper.js';
 import { buildAgentPrompt, sanitizeGptJson } from './prompt.js';
 import { executeAction, autoHandleSpecials } from './executor.js';
+import { researchJob } from './research.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -36,6 +37,9 @@ export async function apply(jobUrl, visible = true) {
     await appPage.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await appPage.waitForTimeout(3000);
 
+    const pageText = await appPage.evaluate(() => document.body.innerText);
+    const research = await researchJob(gptPage, jobUrl, pageText, profile);
+
     for (let step = 1; step <= 20; step++) {
       console.log(`\n${'═'.repeat(52)}`);
       console.log(`  STEP ${step}  —  ${new Date().toLocaleTimeString()}`);
@@ -45,7 +49,7 @@ export async function apply(jobUrl, visible = true) {
       console.log(`  Fields: ${pageState.fields.length} | Buttons: ${pageState.buttons.length} | Canvases: ${pageState.canvases.length}`);
 
       console.log('  🤖 Asking ChatGPT...');
-      const raw = await sendMessage(gptPage, buildAgentPrompt(profile, pageState, step));
+      const raw = await sendMessage(gptPage, buildAgentPrompt(profile, pageState, step, research));
 
       let agentResp = null;
       let src = raw;
