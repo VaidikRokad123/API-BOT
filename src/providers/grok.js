@@ -27,5 +27,5 @@ export async function sendMessage(page, text) {
 
   // afterCount waits for THIS turn's reply to appear — no fixed sleep needed,
   // so a slow "Thought for 2s" no longer makes us read the previous answer.
-  return waitForStable(page, RESPONSE, { afterCount: before, stableFor: 700 });
+  return waitForStable(page, RESPONSE, { afterCount: before, stableFor: 500 });
 }

@@ -24,6 +24,6 @@ export async function sendMessage(page, text) {
   return waitForStable(page, RESPONSE, {
     afterCount:   before,
     stopSelector: 'button[data-testid="stop-button"]',
-    stableFor:    1000,
+    stableFor:    500,
   });
 }

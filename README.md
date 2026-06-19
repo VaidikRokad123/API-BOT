@@ -1,13 +1,14 @@
-# GPT Automation Agent
+# AI Automation Agent
 
-Automate ChatGPT from the terminal — no API key, no cost. Uses your real ChatGPT account through a Playwright-controlled browser.
+Automate **ChatGPT, Grok, Gemini, or Perplexity** from the terminal — no API key, no cost. Uses your real logged-in account through a Playwright-controlled browser.
 
-**Three things it can do:**
-- **Login** — save your ChatGPT session once
+**What it can do:**
+- **Login** — pick a provider and save your session once
 - **Chat** — interactive terminal chat with memory across messages
-- **Apply** — AI fills and submits job application forms automatically
+- **Ask** — one-shot question, prints the answer, returns
+- **Apply** — researches the company, then AI fills and submits job application forms automatically
 
-> The browser is **always visible by default**. Pass `--hidden` if you want it minimized.
+Everything runs from a single interactive console (`node agent.js`). The browser is **visible by default** so you can watch it work.
 
 ---
 
@@ -18,16 +19,20 @@ Automate ChatGPT from the terminal — no API key, no cost. Uses your real ChatG
 npm install
 npx playwright install chromium
 
-# 2. Create your profile
+# 2. Create your profile (only needed for /apply)
 copy data\profile.example.json data\profile.json
 # → open data\profile.json and fill in your real info
 
-# 3. Save your ChatGPT session
-node agent.js login
+# 3. Start the agent
+node agent.js
+```
 
-# 4. Use it
-node agent.js chat
-node agent.js apply "https://company.com/jobs/apply/123"
+Then inside the console:
+
+```
+> /login          choose ChatGPT / Grok / Gemini / Perplexity, log in once
+> /chat           start chatting
+> /apply <url>    auto-fill a job application
 ```
 
 ---
@@ -35,255 +40,225 @@ node agent.js apply "https://company.com/jobs/apply/123"
 ## Requirements
 
 - **Node.js v18+** — [nodejs.org](https://nodejs.org)
-- A **ChatGPT account** (free or Plus — both work)
+- An account with at least one of: **ChatGPT**, **Grok**, **Gemini**, **Perplexity** (free tiers work)
+
+---
+
+## The Console
+
+Run `node agent.js` and you get an interactive prompt:
+
+```
+  ╔══════════════════════════════════════════════════════╗
+  ║    AI Agent                                  v1.0    ║
+  ║    Chat · Job Apply · Browser Automation             ║
+  ╚══════════════════════════════════════════════════════╝
+
+  Provider  :  Grok  ✓  (session active)
+
+  Type /help for all commands.
+
+>
+```
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `/login` | Pick a provider, open a browser, log in manually, save the session |
+| `/chat` | Interactive chat with the active provider (type `exit` to return) |
+| `/ask <question>` | One-shot question — prints the answer and returns to the menu |
+| `/apply <url>` | Research the company + AI-fill the job application form |
+| `/apply <url> --hidden` | Same, but browser minimized |
+| `/status` | Show the active provider and whether its session is valid |
+| `/help` | List all commands |
+| `/exit` | Quit |
 
 ---
 
 ## Setup (step by step)
 
-### Step 1 — Install dependencies
+### Step 1 — Install
 
 ```powershell
 npm install
 npx playwright install chromium
 ```
 
-> If your **C: drive is full**, redirect the browser download to another drive:
+> If your **C: drive is full**, redirect the browser download:
 > ```powershell
 > $env:PLAYWRIGHT_BROWSERS_PATH="D:\playwright-browsers"
 > npx playwright install chromium
 > ```
-> Set that env var again before running `agent.js` commands.
+> Set that env var again before running `node agent.js`.
 
----
+### Step 2 — Log in to a provider
 
-### Step 2 — Create your profile
+```
+> /login
+
+    1)  ChatGPT       chatgpt.com
+    2)  Grok          grok.com
+    3)  Gemini        gemini.google.com
+    4)  Perplexity    perplexity.ai
+
+  Enter 1–4: 2
+```
+
+1. A browser window opens at the provider's site
+2. Log in to your account (handle any CAPTCHA manually)
+3. Once you see the chat interface, come back to the terminal
+4. Press **ENTER**
+5. Session is saved to `session/<provider>.json`
+
+You only do this **once per provider**. Re-run `/login` if a session expires.
+
+### Step 3 — Create your profile (only for `/apply`)
 
 ```powershell
 copy data\profile.example.json data\profile.json
 ```
 
-Open `data\profile.json` and fill in your real details. This is what the agent reads to answer job application form questions.
+Fill in `data\profile.json` — this is what the agent uses to answer application questions.
 
 | Field | What to put |
 |---|---|
-| `name` | Your full name |
-| `email` | Your email |
-| `phone` | Your phone number |
-| `city` | Your city — used for location questions ("Are you from X?") |
-| `linkedin` | Full LinkedIn URL |
-| `github` | Full GitHub URL |
-| `portfolio` | Your website/portfolio URL |
-| `yearsOfExperience` | Number as a string, e.g. `"2"` |
-| `currentRole` | Your current job title |
-| `currentCTC` | Current salary, e.g. `"4 LPA"` |
-| `expectedCTC` | Expected salary, e.g. `"6 LPA"` |
-| `noticePeriod` | Days, e.g. `"30"` |
-| `reasonForLeaving` | Why you're switching jobs |
-| `skills` | Array of skills: `["React", "Node.js", ...]` |
+| `name`, `email`, `phone`, `city` | Personal details (`city` is used for location questions) |
+| `linkedin`, `github`, `portfolio` | Full URLs |
+| `yearsOfExperience`, `currentRole` | e.g. `"2"`, `"Full Stack Developer"` |
+| `currentCTC`, `expectedCTC` | e.g. `"4 LPA"`, `"6 LPA"` |
+| `noticePeriod`, `reasonForLeaving` | e.g. `"30"`, why you're switching |
+| `skills` | Array: `["React", "Node.js", ...]` |
 | `education` | Degree, field, college, year |
-| `resume` | Paste your full resume as plain text — GPT reads this for open questions |
-| `resumePdfPath` | Absolute path to your resume PDF, e.g. `"D:\\Documents\\resume.pdf"` |
+| `resume` | Full resume as plain text — used for open-ended questions |
+| `resumePdfPath` | Absolute path to your resume PDF (double backslashes: `"D:\\Docs\\resume.pdf"`) |
 
 ---
 
-### Step 3 — Login to ChatGPT
-
-```powershell
-node agent.js login
-```
-
-**What happens:**
-1. A Chrome window opens and navigates to `chatgpt.com`
-2. Log in to your ChatGPT account (handle any CAPTCHA manually)
-3. Once you see your chat sidebar, come back to the terminal
-4. Press **Enter**
-5. Session is saved to `session/session.json`
-
-You only need to do this **once**. Re-run it if your session expires (usually after a few weeks).
-
----
-
-## How to Run
-
-### Chat with GPT
-
-```powershell
-node agent.js chat
-```
-
-Opens a visible browser window and starts an interactive chat in the terminal. All messages in one session share memory — GPT remembers what you said earlier.
+## How `/chat` works
 
 ```
-╔════════════════════════════════════════╗
-║      ChatGPT Interactive Console       ║
-║  All messages share memory this session║
-║  Type "exit" or Ctrl+C to quit         ║
-╚════════════════════════════════════════╝
+> /chat
+[AI] Connecting to Grok... Ready ✓
+
+  ╔══════════════════════════════════════════╗
+  ║  Grok       Chat                          ║
+  ║  All messages share memory this session  ║
+  ║  Type "exit" to return to main menu      ║
+  ╚══════════════════════════════════════════╝
 
 You: what is React?
-GPT: React is a JavaScript library for building user interfaces...
+Grok: React is a JavaScript library for building user interfaces...
 ────────────────────────────────────────────────────────────
 
 You: give me a code example
-GPT: Here's a simple React component...
+Grok: Here's a simple component...
 ────────────────────────────────────────────────────────────
 
 You: exit
-Closing... Goodbye!
+
+  Closing chat... returning to main menu.
+>
 ```
 
-**One-shot question** (no loop — just prints the answer and exits):
-```powershell
-node agent.js ask "Explain closures in JavaScript"
-```
-
-**Run with browser hidden:**
-```powershell
-node agent.js chat --hidden
-```
+All messages in one chat session share memory. Type `exit`, `quit`, or `/exit` to return to the main console (the provider stays logged in).
 
 ---
 
-### Apply for a Job
+## How `/apply` works
 
-```powershell
-node agent.js apply "https://company.com/jobs/apply/123"
+```
+> /apply https://company.com/jobs/apply/123
 ```
 
-Opens the job URL in a visible browser. The agent reads every form field, asks ChatGPT how to fill them using your profile, and submits — you can watch it work in real time.
+It opens **two browsers**:
+- **Browser 1** (hidden) — your AI provider session (the brain)
+- **Browser 2** (visible) — the job application form (the hands)
 
-**Run with browser hidden (background mode):**
-```powershell
-node agent.js apply "https://company.com/jobs/apply/123" --hidden
-```
+Then it:
+
+1. **Researches first** — reads the job page, asks the AI to extract the company, role, key requirements, a fitting salary to quote (at/below market), and which of your skills match best.
+2. **Loops** (up to 20 steps): scrape the form → ask the AI how to fill it (using your profile + research) → execute → repeat.
+3. **Submits** and saves `application_done.png`.
 
 **What it handles automatically:**
 
 | | |
 |---|---|
-| Text fields | Name, email, phone, experience, etc. |
+| Text fields | Name, email, phone, experience, tailored open-ended answers |
 | Dropdowns | Selects the correct option by text |
 | Checkboxes | Checks "I agree / accept terms" boxes |
 | File upload | Uploads your resume PDF |
 | Signature pad | Draws a cursive signature on canvas |
-| Multi-page forms | Clicks Next and continues on the next page |
-| Submission | Clicks Submit and saves `application_done.png` |
+| Multi-page forms | Clicks Next and continues |
+| Salary questions | Quotes a market-appropriate figure, or "as per company standard" when unsure |
 
-**Live output example:**
-```
-╔════════════════════════════════════════╗
-║     Job Application AI Agent           ║
-╚════════════════════════════════════════╝
-URL     : https://company.com/apply/sde
-Applying: Vaidik Rokad <vaidik@email.com>
-
-════════════════════════════════════════════
-  STEP 1  —  1:05:29 PM
-════════════════════════════════════════════
-  Fields: 0 | Buttons: 1 | Canvases: 0
-  🤖 Asking ChatGPT...
-  💭 Job details page — clicking Continue.
-  [CLICK] Continue to Application
-
-════════════════════════════════════════════
-  STEP 2  —  1:05:49 PM
-════════════════════════════════════════════
-  Fields: 6 | Buttons: 2 | Canvases: 0
-  🤖 Asking ChatGPT...
-  💭 Page 1 of 2. Filling personal info.
-  [FILL] Email → "vaidik@email.com"
-  [FILL] Full Name → "Vaidik Rokad"
-  [FILL] Years of Experience → "2"
-  [SELECT] Current Location → "Surat"
-  [CLICK] Next Page
-
-✅ Application submitted! Screenshot → application_done.png
-```
+Run with `--hidden` to minimize the form browser.
 
 ---
 
-## All Commands
+## How It Works (under the hood)
 
-```powershell
-node agent.js login                             # Save ChatGPT session (do once)
-
-node agent.js chat                              # Interactive chat (browser visible)
-node agent.js chat --hidden                     # Interactive chat (browser minimized)
-node agent.js ask "your question"               # Single question, print answer, exit
-
-node agent.js apply "URL"                       # Auto-apply to a job (browser visible)
-node agent.js apply "URL" --hidden              # Auto-apply (browser minimized)
 ```
+node agent.js  →  interactive REPL (slash commands)
+
+/login   → pick provider → browser opens → you log in → saves session/<provider>.json + active.json
+
+/chat    → loads active session → opens provider site → readline loop
+             You type → agent types into the provider's input → waits for the
+             response to stabilize → prints it
+
+/apply   → Browser 1 (hidden, the AI) + Browser 2 (visible, the form)
+             research the company once, then loop:
+               scrape form → AI returns JSON actions → execute → repeat → submit
+```
+
+**Why not use an official API?** This drives your **existing logged-in account** through a real browser. No API key, no cost, no extra rate limits beyond normal usage.
+
+**Switching providers:** run `/login` again and pick a different one. The last provider you logged into becomes the active one (`/chat`, `/ask`, `/apply` all use it).
 
 ---
 
-## How It Works
-
-```
-node agent.js login
-  └─ Opens Chrome → you log in → saves cookies to session/session.json
-
-node agent.js chat
-  └─ Loads session → opens chatgpt.com (visible) → readline loop
-       You type → agent types into #prompt-textarea → waits for .markdown to stabilize → prints response
-
-node agent.js apply "URL"
-  └─ Opens two browsers:
-       Browser 1 (always hidden) — your ChatGPT session (the AI brain)
-       Browser 2 (visible)       — the job application form
-
-     Loop (up to 20 steps):
-       1. scrapePageState()  → reads all inputs, selects, checkboxes, canvases, buttons from DOM
-       2. sendMessage()      → sends page state + your profile to ChatGPT
-       3. GPT returns JSON   → { actions: [{type, selector, value}], status }
-       4. executeAction()    → fill / select / check / upload / signature / click
-       5. repeat until status === "done"
-       6. saves application_done.png on completion
-```
-
-**Why not use the ChatGPT API?**
-This uses your **free ChatGPT account** through a real browser. No API key. No cost. No rate limits beyond your normal ChatGPT usage.
-
----
-
-## File Structure
+## Project Structure
 
 ```
 gpt_auth/
-├── agent.js                    ← CLI entry point (routes commands)
+├── agent.js                    ← interactive REPL (command router)
 ├── package.json
-├── package-lock.json
-├── .gitignore
 ├── README.md
 ├── src/
 │   ├── config.js               ← file paths
-│   ├── browser.js              ← shared browser helpers
-│   ├── gpt.js                  ← ChatGPT session + sendMessage
-│   ├── login.js                ← login command
-│   ├── chat.js                 ← chat command
+│   ├── browser.js              ← shared Playwright/stealth helpers
+│   ├── ai.js                   ← provider-agnostic session + sendMessage
+│   ├── login.js                ← provider menu + session save
+│   ├── chat.js                 ← chat loop
+│   ├── providers/
+│   │   ├── index.js            ← provider registry + waitForStable
+│   │   ├── chatgpt.js          ← ChatGPT selectors
+│   │   ├── grok.js             ← Grok selectors
+│   │   ├── gemini.js           ← Gemini selectors
+│   │   └── perplexity.js       ← Perplexity selectors
 │   └── apply/
 │       ├── index.js            ← apply loop
+│       ├── research.js         ← company/role research step
 │       ├── scraper.js          ← DOM scraper
 │       ├── executor.js         ← action executor + signature drawer
-│       └── prompt.js           ← GPT prompt builder + JSON sanitizer
+│       └── prompt.js           ← prompt builder + JSON sanitizer
 ├── data/
 │   ├── profile.example.json    ← template (safe to share)
-│   ├── profile.json            ← YOUR INFO (gitignored)
-│   └── resume.pdf              ← YOUR RESUME (gitignored)
+│   └── profile.json            ← YOUR INFO (gitignored)
 └── session/
-    └── session.json            ← auto-generated by login (gitignored)
+    ├── active.json             ← which provider is active (gitignored)
+    └── <provider>.json         ← saved sessions (gitignored)
 ```
 
 ---
 
-## Private Files
-
-These are in `.gitignore` and will **never** be pushed to GitHub:
+## Private Files (gitignored — never pushed)
 
 | File | Why |
 |---|---|
-| `session/session.json` | Your ChatGPT login cookies — treat like a password |
+| `session/*.json` | Your login cookies — treat like passwords |
 | `data/profile.json` | Name, email, phone, salary — personal info |
 | `data/resume.pdf` | Your actual resume |
 
@@ -291,29 +266,32 @@ These are in `.gitignore` and will **never** be pushed to GitHub:
 
 ## Troubleshooting
 
+**"Login expired" right after logging in**
+The provider's input selector may have drifted (their UI changed). Your session is probably fine — open the site, inspect the input box, and update the `readySelector` in `src/providers/<provider>.js`.
+
+**`/chat` returns the wrong/previous answer**
+Should be fixed — each provider waits for a *new* response element before reading. If it recurs, the response selector in `src/providers/<provider>.js` needs updating.
+
 **"Cannot find module 'playwright'"**
 ```powershell
 npm install
 npx playwright install chromium
 ```
 
-**Session expired / login prompt appears**
-```powershell
-node agent.js login
-```
-
-**Dropdown not selecting correctly**
-- Watch the browser — it's visible by default so you can see exactly what's happening
-- The agent auto-retries if GPT returns bad JSON
+**Dropdown / field not filling in `/apply`**
+The browser is visible — watch what happens. The agent auto-retries on bad JSON.
 
 **Resume PDF not uploading**
-- Check `resumePdfPath` in `data/profile.json` points to a real file
-- Use double backslashes on Windows: `"D:\\Documents\\MyResume.pdf"`
+Check `resumePdfPath` in `data/profile.json` is a real path with double backslashes: `"D:\\Docs\\resume.pdf"`.
 
-**Playwright browser not found**
-```powershell
-npx playwright install chromium
-```
+---
+
+## Adding a New Provider
+
+1. Create `src/providers/<name>.js` exporting `config` (`key`, `name`, `url`, `readySelector`) and `sendMessage(page, text)`.
+2. Register it in `src/providers/index.js` and add it to the `MENU` in `src/login.js`.
+
+That's it — `/chat`, `/ask`, and `/apply` pick it up automatically.
 
 ---
 
