@@ -1,0 +1,39 @@
+{
+  "name": "Your Full Name",
+  "email": "you@example.com",
+  "phone": "+91-9999999999",
+  "location": "City, State, Country",
+  "city": "Surat",
+  "state": "Gujarat",
+  "country": "India",
+  "linkedin": "https://linkedin.com/in/your-profile",
+  "github": "https://github.com/your-username",
+  "portfolio": "https://yourwebsite.com",
+  "yearsOfExperience": "2",
+  "currentRole": "Full Stack Developer",
+  "desiredRole": "Full Stack Developer",
+  "currentCTC": "4 LPA",
+  "expectedCTC": "6 LPA",
+  "noticePeriod": "30",
+  "reasonForLeaving": "Looking for better growth opportunities and a more challenging technical environment.",
+  "skills": [
+    "JavaScript", "TypeScript", "React", "Node.js", "Express",
+    "MongoDB", "PostgreSQL", "Python", "Docker", "AWS", "REST APIs",
+    "Git", "HTML", "CSS", "Next.js", "Playwright", "Automation"
+  ],
+  "education": {
+    "degree": "Bachelor of Engineering",
+    "field": "Computer Engineering",
+    "institution": "Your College Name",
+    "year": "2024"
+  },
+  "resume": "Paste your full resume text here. This is what GPT reads to answer open-ended questions on application forms.",
+  "resumePdfPath": "D:\\path\\to\\your\\resume.pdf",
+  "coverLetterStyle": "professional and concise, highlight enthusiasm for the company's mission, keep under 300 words",
+  "workAuthorization": "Yes, I am authorized to work",
+  "requiresSponsorship": "No",
+  "veteranStatus": "No",
+  "disabilityStatus": "No",
+  "gender": "Male",
+  "ethnicity": "Asian"
+}
