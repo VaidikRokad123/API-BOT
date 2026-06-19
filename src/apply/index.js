@@ -20,6 +20,15 @@ export async function apply(jobUrl, visible = true) {
   }
   const profile = JSON.parse(fs.readFileSync(PROFILE_FILE, 'utf8'));
 
+  if (profile.resumeLastUpdated && profile.resumePdfLastUpdated) {
+    if (profile.resumeLastUpdated !== profile.resumePdfLastUpdated) {
+      console.warn('\n  ⚠️  WARNING: Resume version mismatch detected in profile.json!');
+      console.warn(`     Plain-text resume last updated: ${profile.resumeLastUpdated}`);
+      console.warn(`     PDF resume last updated:        ${profile.resumePdfLastUpdated}`);
+      console.warn(`     Ensure your text 'resume' field is in sync with your PDF resume!\n`);
+    }
+  }
+
   console.log('\n╔════════════════════════════════════════╗');
   console.log('║     Job Application AI Agent           ║');
   console.log('╚════════════════════════════════════════╝');

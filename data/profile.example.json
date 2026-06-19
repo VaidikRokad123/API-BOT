@@ -28,7 +28,9 @@
     "year": "2024"
   },
   "resume": "Paste your full resume text here. This is what GPT reads to answer open-ended questions on application forms.",
+  "resumeLastUpdated": "2026-06-19",
   "resumePdfPath": "D:\\path\\to\\your\\resume.pdf",
+  "resumePdfLastUpdated": "2026-06-19",
   "coverLetterStyle": "professional and concise, highlight enthusiasm for the company's mission, keep under 300 words",
   "workAuthorization": "Yes, I am authorized to work",
   "requiresSponsorship": "No",

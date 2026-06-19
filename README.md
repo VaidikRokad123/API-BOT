@@ -134,7 +134,12 @@ Fill in `data\profile.json` — this is what the agent uses to answer applicatio
 | `skills` | Array: `["React", "Node.js", ...]` |
 | `education` | Degree, field, college, year |
 | `resume` | Full resume as plain text — used for open-ended questions |
+| `resumeLastUpdated` | Date string (e.g. `"2026-06-19"`) indicating when the plain-text resume was updated |
 | `resumePdfPath` | Absolute path to your resume PDF (double backslashes: `"D:\\Docs\\resume.pdf"`) |
+| `resumePdfLastUpdated` | Date string indicating when the PDF resume was updated |
+
+> [!TIP]
+> The agent validates that `resumeLastUpdated` and `resumePdfLastUpdated` match. If they differ, `/apply` prints a warning to remind you to update your plain-text `resume` content alongside your PDF!
 
 ---
 
