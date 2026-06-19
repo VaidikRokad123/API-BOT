@@ -79,9 +79,13 @@ export async function askChatGPT(prompt) {
     throw new Error('No active session found. Please run "npm run login" first to log in to ChatGPT.');
   }
 
-  // Launch browser in headless (hidden) mode
+  // Check if --visible flag is passed
+  const isHeadless = !process.argv.includes('--visible');
+  console.log(`[Playwright] Launching browser (headless: ${isHeadless})...`);
+
+  // Launch browser
   const browser = await chromium.launch({
-    headless: true, // Invisible background window!
+    headless: isHeadless,
     args: [
       '--disable-blink-features=AutomationControlled',
       '--no-sandbox',
@@ -89,6 +93,7 @@ export async function askChatGPT(prompt) {
     ]
   });
 
+  let page;
   try {
     const context = await browser.newContext({
       storageState: sessionPath,
@@ -96,61 +101,74 @@ export async function askChatGPT(prompt) {
       viewport: { width: 1280, height: 720 }
     });
 
-    // Inject stealth script in headless context as well
+    // Inject stealth script
     await context.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', {
         get: () => undefined,
       });
     });
 
-    const page = await context.newPage();
+    page = await context.newPage();
     
-    // Go to ChatGPT
+    console.log('[Playwright] Navigating to https://chatgpt.com...');
     await page.goto('https://chatgpt.com');
 
     // Wait for text input area
+    console.log('[Playwright] Waiting for input selector (#prompt-textarea)...');
     try {
       await page.waitForSelector('#prompt-textarea', { timeout: 15000 });
     } catch (e) {
-      throw new Error('ChatGPT session expired. Please re-run "npm run login" to update your credentials.');
+      throw new Error('ChatGPT page input (#prompt-textarea) not found. Your session may have expired. Please run "npm run login" again.');
     }
 
     // Input prompt
+    console.log('[Playwright] Typing prompt...');
     const textarea = page.locator('#prompt-textarea');
     await textarea.fill(prompt);
 
     // Wait for send button to be ready and click it
+    console.log('[Playwright] Clicking send button...');
     const sendButton = page.locator('button[data-testid="send-button"]');
     await sendButton.waitFor({ state: 'visible', timeout: 5000 });
     await sendButton.click();
 
-    console.log('[Playwright] Message sent. Waiting for response to generate...');
+    console.log('[Playwright] Message sent. Waiting for response to complete (this may take up to 90 seconds)...');
 
-    // Wait for response to finish. 
-    // During generation, the send button disappears or is replaced by a stop button, 
-    // and when complete, the send button appears again and becomes enabled (not disabled).
-    // We check for: data-testid="send-button" and not having disabled attribute
+    // Wait for response to finish
     await page.waitForSelector('button[data-testid="send-button"]:not([disabled])', { timeout: 90000 });
 
     // Wait an extra half second to let elements stabilize
     await page.waitForTimeout(800);
 
-    // Extract the text of the last markdown block (which is ChatGPT's response)
+    // Extract the text of the last markdown block
     const markdownBlocks = page.locator('.markdown');
     const count = await markdownBlocks.count();
     
     if (count === 0) {
-      throw new Error('Could not find any response text block in the chat.');
+      throw new Error('No response text block (.markdown) was found on the page.');
     }
 
+    console.log('[Playwright] Response received. Extracting text...');
     const responseText = await markdownBlocks.last().innerText();
     return responseText.trim();
 
   } catch (error) {
-    console.error('[Playwright] Automation error:', error.message);
+    console.error('[Playwright] Automation failed:', error.message);
+    
+    // Save screenshot for debugging
+    if (page) {
+      const screenshotPath = path.join(process.cwd(), 'debug_screenshot.png');
+      try {
+        await page.screenshot({ path: screenshotPath });
+        console.log(`[Playwright] DEBUG: Captured screenshot of the stuck browser state to: ${screenshotPath}`);
+      } catch (e) {
+        console.error('[Playwright] Could not capture debug screenshot:', e.message);
+      }
+    }
     throw error;
   } finally {
     await browser.close();
+    console.log('[Playwright] Browser closed.');
   }
 }
 
