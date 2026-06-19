@@ -10,7 +10,9 @@
     "login": "node scripts/chatgpt_headless.js login",
     "test:headless": "node scripts/chatgpt_headless.js test",
     "chat": "node scripts/chatgpt_headless.js chat",
-    "chat:visible": "node scripts/chatgpt_headless.js chat --visible"
+    "chat:visible": "node scripts/chatgpt_headless.js chat --visible",
+    "apply": "node scripts/job_applier.js",
+    "apply:visible": "node scripts/job_applier.js --visible"
   },
   "dependencies": {
     "cors": "^2.8.5",
