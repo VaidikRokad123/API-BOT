@@ -10,6 +10,7 @@ const MENU = [
   { key: 'grok',       label: 'Grok',       host: 'grok.com'          },
   { key: 'gemini',     label: 'Gemini',     host: 'gemini.google.com' },
   { key: 'perplexity', label: 'Perplexity', host: 'perplexity.ai'     },
+  { key: 'deepseek',   label: 'DeepSeek',   host: 'chat.deepseek.com' },
 ];
 
 const question = (rl, q) => new Promise((resolve) => rl.question(q, resolve));
@@ -26,7 +27,7 @@ export async function login(externalRl = null) {
   MENU.forEach((p, i) => console.log(`    ${i + 1})  ${p.label.padEnd(12)}  ${p.host}`));
   console.log();
 
-  const answer = (await question(rl, '  Enter 1–4 (or blank to cancel): ')).trim();
+  const answer = (await question(rl, `  Enter 1–${MENU.length} (or blank to cancel): `)).trim();
 
   // Graceful aborts — never kill the REPL on a typo.
   if (!answer) { console.log('\n  Cancelled.\n'); if (ownRl) rl.close(); return; }

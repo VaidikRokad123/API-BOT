@@ -115,6 +115,15 @@ const COMMANDS = {
     },
   },
 
+  '/council': {
+    usage:   '/council <question>',
+    desc:    'Ask all logged-in providers at once, then merge their answers',
+    handler: async (args, rl) => {
+      const { council } = await import('./src/council.js');
+      await council(args, rl, true);
+    },
+  },
+
   '/status': {
     usage:   '/status',
     desc:    'Show the active provider and session state',

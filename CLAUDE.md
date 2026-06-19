@@ -25,7 +25,7 @@ There are no tests or linter configured.
 
 ## Architecture
 
-**Entry point:** `agent.js` — interactive REPL. Shows a banner, reads slash commands (`/login`, `/chat`, `/apply`, `/ask`, `/status`, `/help`, `/exit`), dispatches to `src/` handlers. Adding a new command = one new entry in the `COMMANDS` object.
+**Entry point:** `agent.js` — interactive REPL. Shows a banner, reads slash commands (`/login`, `/chat`, `/ask`, `/council`, `/apply`, `/status`, `/help`, `/exit`), dispatches to `src/` handlers. Adding a new command = one new entry in the `COMMANDS` object.
 
 **`src/` module map:**
 
@@ -36,11 +36,13 @@ There are no tests or linter configured.
 | `src/ai.js` | `openAiSession()` — reads active provider from `session/active.json`, loads session, navigates to provider URL; `sendMessage()` — delegates to active provider's sendMessage |
 | `src/login.js` | Terminal menu to pick provider, opens browser, waits for user to log in, saves `session/{provider}.json` + `session/active.json` |
 | `src/chat.js` | Interactive chat loop; accepts optional `externalRl` to share the REPL's readline instance (returns to REPL on exit instead of killing the process) |
+| `src/council.js` | `/council` — opens every logged-in provider concurrently (bypasses ai.js singleton via `getProvider(key).sendMessage`), fans out one prompt, user picks a provider to merge answers |
 | `src/providers/index.js` | `PROVIDERS` map, `getProvider(key)`, shared `waitForStable()` polling helper |
 | `src/providers/chatgpt.js` | ChatGPT-specific selectors and `sendMessage` |
 | `src/providers/grok.js` | Grok — ProseMirror input (`.ProseMirror`), `keyboard.type()`, `[data-testid="assistant-message"]` |
 | `src/providers/gemini.js` | Gemini — contenteditable input with fill→type fallback |
-| `src/providers/perplexity.js` | Perplexity — textarea input, `.prose` response |
+| `src/providers/perplexity.js` | Perplexity — textarea/contenteditable input, `.prose` response |
+| `src/providers/deepseek.js` | DeepSeek — `textarea#chat-input`, `.ds-markdown` response |
 | `src/apply/index.js` | Apply loop — research phase then up to 20 scrape→AI→execute steps |
 | `src/apply/research.js` | `researchJob()` — asks AI to extract company info, salary, matching skills before form filling |
 | `src/apply/scraper.js` | `scrapePageState()` — DOM snapshot of all inputs, selects, canvases, buttons |
@@ -50,7 +52,7 @@ There are no tests or linter configured.
 **Provider session files:**
 - `session/active.json` — `{ "provider": "grok" }` — which provider is active
 - `session/session.json` — ChatGPT (legacy name kept for backward compat)
-- `session/grok.json`, `session/gemini.json`, `session/perplexity.json` — other providers
+- `session/grok.json`, `session/gemini.json`, `session/perplexity.json`, `session/deepseek.json` — other providers
 
 **Data flow for `/apply`:**
 ```

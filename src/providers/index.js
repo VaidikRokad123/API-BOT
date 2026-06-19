@@ -2,8 +2,9 @@ import * as chatgpt     from './chatgpt.js';
 import * as grok        from './grok.js';
 import * as gemini      from './gemini.js';
 import * as perplexity  from './perplexity.js';
+import * as deepseek    from './deepseek.js';
 
-export const PROVIDERS = { chatgpt, grok, gemini, perplexity };
+export const PROVIDERS = { chatgpt, grok, gemini, perplexity, deepseek };
 
 export function getProvider(key) {
   if (!PROVIDERS[key]) {

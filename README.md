@@ -1,6 +1,6 @@
 # AI Automation Agent
 
-Automate **ChatGPT, Grok, Gemini, or Perplexity** from the terminal — no API key, no cost. Uses your real logged-in account through a Playwright-controlled browser.
+Automate **ChatGPT, Grok, Gemini, Perplexity, or DeepSeek** from the terminal — no API key, no cost. Uses your real logged-in account through a Playwright-controlled browser.
 
 **What it can do:**
 - **Login** — pick a provider and save your session once
@@ -40,7 +40,7 @@ Then inside the console:
 ## Requirements
 
 - **Node.js v18+** — [nodejs.org](https://nodejs.org)
-- An account with at least one of: **ChatGPT**, **Grok**, **Gemini**, **Perplexity** (free tiers work)
+- An account with at least one of: **ChatGPT**, **Grok**, **Gemini**, **Perplexity**, **DeepSeek** (free tiers work)
 
 ---
 
@@ -68,6 +68,7 @@ Run `node agent.js` and you get an interactive prompt:
 | `/login` | Pick a provider, open a browser, log in manually, save the session |
 | `/chat` | Interactive chat with the active provider (type `exit` to return) |
 | `/ask <question>` | One-shot question — prints the answer and returns to the menu |
+| `/council <question>` | Ask **all** logged-in providers at once, then merge their answers |
 | `/apply <url>` | Research the company + AI-fill the job application form |
 | `/apply <url> --hidden` | Same, but browser minimized |
 | `/status` | Show the active provider and whether its session is valid |
@@ -101,8 +102,9 @@ npx playwright install chromium
     2)  Grok          grok.com
     3)  Gemini        gemini.google.com
     4)  Perplexity    perplexity.ai
+    5)  DeepSeek      chat.deepseek.com
 
-  Enter 1–4: 2
+  Enter 1–5: 2
 ```
 
 1. A browser window opens at the provider's site
@@ -162,6 +164,50 @@ You: exit
 ```
 
 All messages in one chat session share memory. Type `exit`, `quit`, or `/exit` to return to the main console (the provider stays logged in).
+
+---
+
+## How `/council` works
+
+Ask the same question to **every provider you're logged into**, then have one of them
+merge all the answers into a single best response. A merged answer is more reliable
+than any single model — and it's free.
+
+```
+> /council what is a closure in JavaScript?
+
+  Convening council: Grok, Perplexity
+
+  Asking all providers (this runs in parallel)...
+
+────────────────────────────────────────────────────────────
+  Grok
+────────────────────────────────────────────────────────────
+A closure is a function bundled with its surrounding scope...
+
+────────────────────────────────────────────────────────────
+  Perplexity
+────────────────────────────────────────────────────────────
+In JavaScript, a closure gives you access to an outer function's scope...
+
+────────────────────────────────────────────────────────────
+    1) Grok
+    2) Perplexity
+
+  Which provider should merge all answers? (number, blank to skip): 1
+
+  Grok is merging...
+
+════════════════════════════════════════════════════════════
+  CONSENSUS  (merged by Grok)
+════════════════════════════════════════════════════════════
+A closure is the combination of a function and the lexical scope...
+```
+
+- Uses **all** providers with a saved session automatically; skips ones you haven't logged into.
+- Needs **at least 2** providers logged in.
+- All browser windows open visibly so you can watch each AI type.
+- If a session has expired, that provider is skipped and the rest continue.
 
 ---
 
@@ -232,12 +278,14 @@ gpt_auth/
 │   ├── ai.js                   ← provider-agnostic session + sendMessage
 │   ├── login.js                ← provider menu + session save
 │   ├── chat.js                 ← chat loop
+│   ├── council.js              ← /council — fan out to all providers + merge
 │   ├── providers/
 │   │   ├── index.js            ← provider registry + waitForStable
 │   │   ├── chatgpt.js          ← ChatGPT selectors
 │   │   ├── grok.js             ← Grok selectors
 │   │   ├── gemini.js           ← Gemini selectors
-│   │   └── perplexity.js       ← Perplexity selectors
+│   │   ├── perplexity.js       ← Perplexity selectors
+│   │   └── deepseek.js         ← DeepSeek selectors
 │   └── apply/
 │       ├── index.js            ← apply loop
 │       ├── research.js         ← company/role research step
