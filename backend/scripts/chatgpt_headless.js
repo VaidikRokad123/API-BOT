@@ -18,33 +18,57 @@ export async function setupSession() {
   console.log('====================================================');
   console.log('Starting headful Chrome browser...');
   console.log('Please log in to your ChatGPT account in the browser window.');
-  console.log('Once you are logged in and see the chat input box, the session will be saved.');
+  console.log('Ensure you click Log In and are fully signed in.');
   console.log('====================================================');
 
   const browser = await chromium.launch({
     headless: false, // Visible window so user can log in
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--no-sandbox',
+      '--disable-setuid-sandbox'
+    ]
   });
 
-  const context = await browser.newContext();
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 720 }
+  });
+
+  // Inject stealth script to bypass Cloudflare turnstile
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => undefined,
+    });
+  });
+
   const page = await context.newPage();
   await page.goto('https://chatgpt.com');
 
-  console.log('[Setup] Waiting for login completion (input field to appear)...');
+  console.log('\n[Action Required]');
+  console.log('1. Go to the opened Chrome browser.');
+  console.log('2. Sign in to your ChatGPT account.');
+  console.log('3. Once you are fully logged in and see the chat history/sidebar,');
+  console.log('   return to this terminal and press [ENTER] to save your session.');
+  console.log('====================================================');
+
+  // Wait for manual confirmation via stdin
+  await new Promise((resolve) => {
+    process.stdin.resume();
+    process.stdin.once('data', () => {
+      process.stdin.pause();
+      resolve();
+    });
+  });
 
   try {
-    // Wait for the chat text area to appear (means user is logged in)
-    await page.waitForSelector('#prompt-textarea', { timeout: 300000 }); // 5 minutes timeout
-
-    console.log('[Setup] Login detected! Saving session state...');
+    console.log('[Setup] Saving session state...');
     
-    // Small sleep to ensure session state updates
-    await page.waitForTimeout(3000);
-
     // Save cookies and storage state to D: drive
     await context.storageState({ path: sessionPath });
     console.log(`[Setup] Success! Session saved to: ${sessionPath}`);
   } catch (error) {
-    console.error('[Setup] Error during login setup:', error.message);
+    console.error('[Setup] Error saving session state:', error.message);
   } finally {
     await browser.close();
   }
@@ -58,12 +82,25 @@ export async function askChatGPT(prompt) {
   // Launch browser in headless (hidden) mode
   const browser = await chromium.launch({
     headless: true, // Invisible background window!
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--no-sandbox',
+      '--disable-setuid-sandbox'
+    ]
   });
 
   try {
     const context = await browser.newContext({
       storageState: sessionPath,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 720 }
+    });
+
+    // Inject stealth script in headless context as well
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
     });
 
     const page = await context.newPage();
