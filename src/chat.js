@@ -1,9 +1,9 @@
-import { openGptSession, sendMessage } from './gpt.js';
+import { openAiSession, sendMessage } from './ai.js';
 
 export async function chat(visible = true) {
   let browser, page;
   try {
-    ({ browser, page } = await openGptSession(visible));
+    ({ browser, page } = await openAiSession(visible));
   } catch (e) {
     console.error('✗', e.message); process.exit(1);
   }

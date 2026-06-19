@@ -1,10 +1,10 @@
-import { sendMessage } from '../gpt.js';
+import { sendMessage } from '../ai.js';
 import { sanitizeGptJson } from './prompt.js';
 
-export async function researchJob(gptPage, jobUrl, pageText, profile) {
+export async function researchJob(aiPage, jobUrl, pageText, profile) {
   console.log('\n  🔍 Researching company and role...');
 
-  const raw = await sendMessage(gptPage, `
+  const raw = await sendMessage(aiPage, `
 You are preparing a job application. Research the company and role using the job page text below, then return a JSON object.
 
 JOB URL: ${jobUrl}

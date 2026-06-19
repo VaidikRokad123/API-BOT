@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { openGptSession, sendMessage } from '../gpt.js';
+import { openAiSession, sendMessage } from '../ai.js';
 import { launchBrowser, newStealthContext } from '../browser.js';
 import { PROFILE_FILE } from '../config.js';
 import { scrapePageState } from './scraper.js';
@@ -27,7 +27,7 @@ export async function apply(jobUrl, visible = true) {
   console.log(`Applying: ${profile.name} <${profile.email}>`);
   console.log(`Resume  : ${profile.resumePdfPath || '⚠ Not set'}\n`);
 
-  const { browser: gptBrowser, page: gptPage } = await openGptSession(false);
+  const { browser: aiBrowser, page: aiPage } = await openAiSession(false);
 
   const appBrowser = await launchBrowser(visible);
   const appCtx     = await newStealthContext(appBrowser);
@@ -38,7 +38,7 @@ export async function apply(jobUrl, visible = true) {
     await appPage.waitForTimeout(3000);
 
     const pageText = await appPage.evaluate(() => document.body.innerText);
-    const research = await researchJob(gptPage, jobUrl, pageText, profile);
+    const research = await researchJob(aiPage, jobUrl, pageText, profile);
 
     for (let step = 1; step <= 20; step++) {
       console.log(`\n${'═'.repeat(52)}`);
@@ -48,8 +48,8 @@ export async function apply(jobUrl, visible = true) {
       const pageState = await scrapePageState(appPage);
       console.log(`  Fields: ${pageState.fields.length} | Buttons: ${pageState.buttons.length} | Canvases: ${pageState.canvases.length}`);
 
-      console.log('  🤖 Asking ChatGPT...');
-      const raw = await sendMessage(gptPage, buildAgentPrompt(profile, pageState, step, research));
+      console.log('  🤖 Asking AI...');
+      const raw = await sendMessage(aiPage, buildAgentPrompt(profile, pageState, step, research));
 
       let agentResp = null;
       let src = raw;
@@ -58,8 +58,8 @@ export async function apply(jobUrl, visible = true) {
           agentResp = sanitizeGptJson(src); break;
         } catch (e) {
           if (attempt === 1) {
-            console.log('  ⚠ JSON parse error — asking GPT to retry...');
-            src = await sendMessage(gptPage, 'Your last response had invalid JSON. Re-send ONLY the raw JSON object, no markdown, no explanation.');
+            console.log('  ⚠ JSON parse error — asking AI to retry...');
+            src = await sendMessage(aiPage, 'Your last response had invalid JSON. Re-send ONLY the raw JSON object, no markdown, no explanation.');
           } else {
             console.log(`  ✗ Parse failed: ${e.message}`);
           }
@@ -89,7 +89,7 @@ export async function apply(jobUrl, visible = true) {
       await autoHandleSpecials(appPage, fresh, profile);
     }
   } finally {
-    await gptBrowser.close();
+    await aiBrowser.close();
     await appBrowser.close();
     console.log('\n[Done] Browsers closed.\n');
   }

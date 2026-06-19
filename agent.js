@@ -1,7 +1,7 @@
 import { login }          from './src/login.js';
 import { chat }           from './src/chat.js';
 import { apply }          from './src/apply/index.js';
-import { openGptSession, sendMessage } from './src/gpt.js';
+import { openAiSession, sendMessage } from './src/ai.js';
 
 const mode    = process.argv[2];
 const arg     = process.argv[3];
@@ -31,7 +31,7 @@ switch (mode) {
   case 'ask':
     if (!arg) { console.log('Usage: node agent.js ask "your question"'); process.exit(1); }
     (async () => {
-      const { browser, page } = await openGptSession(visible);
+      const { browser, page } = await openAiSession(visible);
       try {
         console.log(`Asking: "${arg}"\n`);
         const response = await sendMessage(page, arg);
