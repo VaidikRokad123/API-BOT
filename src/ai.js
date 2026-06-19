@@ -38,7 +38,7 @@ export async function openAiSession(visible = false) {
     throw new Error(`Login expired for ${provider.config.name}. Run:  node agent.js login  again.`);
   }
 
-  return { browser, page };
+  return { browser, page, providerName: provider.config.name };
 }
 
 export async function sendMessage(page, text) {

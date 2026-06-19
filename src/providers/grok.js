@@ -1,25 +1,27 @@
 import { waitForStable } from './index.js';
 
-// Selectors valid as of 2025-06 — update if Grok redesigns their UI
+// Grok uses a ProseMirror rich-text editor — fill() does not work on it.
+// Must click the .ProseMirror div and use keyboard.type().
 export const config = {
   key:           'grok',
   name:          'Grok',
   url:           'https://grok.com',
-  readySelector: 'textarea',
+  readySelector: '.ProseMirror',
 };
 
 export async function sendMessage(page, text) {
-  const input = page.locator('textarea').first();
-  await input.click();
-  await input.fill(text);
+  const editor = page.locator('.ProseMirror').first();
+  await editor.click();
+
+  // Clear any leftover content, then type
+  await page.keyboard.press('Control+A');
+  await page.keyboard.press('Delete');
+  await page.keyboard.type(text, { delay: 20 });
+
+  // Enter sends in Grok's chat UI
   await page.keyboard.press('Enter');
 
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(1500);
 
-  // Grok response messages — try multiple selector patterns
-  return waitForStable(page, [
-    '[data-testid="message"]:last-child',
-    '[class*="Message"]:last-child',
-    '[class*="response"]:last-child p',
-  ].join(', '), { stableFor: 2000 });
+  return waitForStable(page, '[data-testid="assistant-message"]', { stableFor: 600 });
 }

@@ -56,10 +56,21 @@ export async function login() {
   });
 
   try {
-    const sFile = sessionFile(providerKey);
-    await ctx.storageState({ path: sFile });
+    // Wait for background iframes (auth, payment scripts) to settle before saving.
+    // storageState() fails if a frame is mid-navigation when it's called.
+    console.log('  Saving session...');
+    await page.waitForTimeout(3000);
 
-    // Remember which provider is active
+    const sFile = sessionFile(providerKey);
+
+    // Retry once — some providers load heavy iframe trees that need extra time.
+    try {
+      await ctx.storageState({ path: sFile });
+    } catch {
+      await page.waitForTimeout(3000);
+      await ctx.storageState({ path: sFile });
+    }
+
     fs.writeFileSync(ACTIVE_FILE, JSON.stringify({ provider: providerKey }, null, 2));
 
     console.log(`\n✅ Logged in as: ${provider.config.name}`);
