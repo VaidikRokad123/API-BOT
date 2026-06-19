@@ -1,0 +1,26 @@
+{
+  "name": "gpt-desktop-automation",
+  "version": "1.0.0",
+  "description": "MERN app to automate and interface with local GPT Desktop app",
+  "main": "backend/server.js",
+  "scripts": {
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "backend": "cd backend && npm run dev",
+    "frontend": "cd frontend && npm run dev",
+    "dev": "npx concurrently \"npm run backend\" \"npm run frontend\"",
+    "start": "cd backend && npm start",
+    "login": "cd backend && npm run login",
+    "test:headless": "cd backend && npm run test:headless"
+  },
+  "keywords": [
+    "mern",
+    "automation",
+    "gpt",
+    "chatgpt",
+    "desktop"
+  ],
+  "author": "Antigravity",
+  "license": "MIT"
+}
