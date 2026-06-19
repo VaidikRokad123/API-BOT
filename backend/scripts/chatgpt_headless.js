@@ -79,17 +79,19 @@ export async function askChatGPT(prompt) {
     throw new Error('No active session found. Please run "npm run login" first to log in to ChatGPT.');
   }
 
-  // Check if --visible flag is passed
-  const isHeadless = !process.argv.includes('--visible');
-  console.log(`[Playwright] Launching browser (headless: ${isHeadless})...`);
+  // Check if --visible flag is passed (shows the browser window fully)
+  const isVisible = process.argv.includes('--visible');
+  console.log(`[Playwright] Launching browser (${isVisible ? 'visible' : 'minimized background'})...`);
 
-  // Launch browser
+  // IMPORTANT: We always launch headless:false because Cloudflare blocks headless Chrome.
+  // Instead we use --start-minimized to keep the window in the taskbar, invisible to user.
   const browser = await chromium.launch({
-    headless: isHeadless,
+    headless: false,
     args: [
       '--disable-blink-features=AutomationControlled',
       '--no-sandbox',
-      '--disable-setuid-sandbox'
+      '--disable-setuid-sandbox',
+      ...(isVisible ? [] : ['--start-minimized']),
     ]
   });
 
@@ -206,26 +208,98 @@ export async function askChatGPT(prompt) {
   }
 }
 
-// Support running directly from command line for testing
+// Interactive REPL loop
+async function interactiveChat() {
+  const readline = (await import('readline')).default;
+  const isVisible = process.argv.includes('--visible');
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  console.log('\n============================================');
+  console.log('  ChatGPT Interactive Console');
+  console.log('============================================');
+  console.log('  Type your message and press Enter.');
+  console.log('  Type "exit" or press Ctrl+C to quit.');
+  console.log('============================================\n');
+
+  const ask = () => {
+    rl.question('You: ', async (input) => {
+      const prompt = input.trim();
+
+      if (!prompt) {
+        ask();
+        return;
+      }
+
+      if (prompt.toLowerCase() === 'exit') {
+        console.log('\nGoodbye!');
+        rl.close();
+        process.exit(0);
+      }
+
+      try {
+        // Temporarily inject --visible into argv if flag was set
+        if (isVisible && !process.argv.includes('--visible')) {
+          process.argv.push('--visible');
+        }
+
+        process.stdout.write('\nGPT: [thinking...]\r');
+        const response = await askChatGPT(prompt);
+
+        // Clear the thinking line and print response
+        process.stdout.write('\x1B[2K\r'); // Clear current line
+        console.log('\nGPT: ' + response);
+        console.log('\n' + '─'.repeat(50));
+      } catch (err) {
+        console.error('\n[Error]', err.message);
+      }
+
+      // Continue asking
+      ask();
+    });
+  };
+
+  ask();
+
+  // Handle Ctrl+C cleanly
+  rl.on('close', () => {
+    console.log('\nSession ended. Goodbye!');
+    process.exit(0);
+  });
+}
+
+// Support running directly from command line
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
+
   if (mode === 'login') {
     setupSession();
   } else if (mode === 'test') {
+    // Single-shot test with a prompt from CLI args
     const testPrompt = process.argv[3] || 'Hello, reply in 5 words.';
-    console.log(`[Test] Sending test prompt: "${testPrompt}"`);
+    console.log(`[Test] Sending: "${testPrompt}"`);
     askChatGPT(testPrompt)
       .then(res => {
-        console.log('\n--- ChatGPT Response ---');
+        console.log('\n─── ChatGPT Response ─────────────────────────');
         console.log(res);
-        console.log('------------------------');
+        console.log('──────────────────────────────────────────────');
       })
       .catch(err => {
-        console.error('\n[Test] Test run failed:', err.message);
+        console.error('\n[Test] Failed:', err.message);
       });
+  } else if (mode === 'chat') {
+    // Interactive persistent chat loop
+    interactiveChat();
   } else {
+    console.log('');
     console.log('Usage:');
-    console.log('  node chatgpt_headless.js login    (Starts headful browser for login)');
-    console.log('  node chatgpt_headless.js test     (Tests prompt query in headless mode)');
+    console.log('  node chatgpt_headless.js login             Log in and save session');
+    console.log('  node chatgpt_headless.js test "prompt"     Send one message and exit');
+    console.log('  node chatgpt_headless.js chat              Interactive chat loop (stays open)');
+    console.log('  Add --visible to any command to show the browser window');
+    console.log('');
   }
 }
