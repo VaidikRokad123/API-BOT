@@ -7,6 +7,8 @@ Automate ChatGPT from the terminal — no API key, no cost. Uses your real ChatG
 - **Chat** — interactive terminal chat with memory across messages
 - **Apply** — AI fills and submits job application forms automatically
 
+> The browser is **always visible by default**. Pass `--hidden` if you want it minimized.
+
 ---
 
 ## Quick Start
@@ -51,7 +53,7 @@ npx playwright install chromium
 > $env:PLAYWRIGHT_BROWSERS_PATH="D:\playwright-browsers"
 > npx playwright install chromium
 > ```
-> You'll need to set that env var every time you run agent.js too.
+> Set that env var again before running `agent.js` commands.
 
 ---
 
@@ -110,7 +112,7 @@ You only need to do this **once**. Re-run it if your session expires (usually af
 node agent.js chat
 ```
 
-Interactive multi-turn chat in the terminal. All messages in one session share memory — GPT remembers what you said earlier.
+Opens a visible browser window and starts an interactive chat in the terminal. All messages in one session share memory — GPT remembers what you said earlier.
 
 ```
 ╔════════════════════════════════════════╗
@@ -136,9 +138,9 @@ Closing... Goodbye!
 node agent.js ask "Explain closures in JavaScript"
 ```
 
-**Show the browser** (useful for debugging):
+**Run with browser hidden:**
 ```powershell
-node agent.js chat --visible
+node agent.js chat --hidden
 ```
 
 ---
@@ -149,11 +151,11 @@ node agent.js chat --visible
 node agent.js apply "https://company.com/jobs/apply/123"
 ```
 
-The agent opens the job URL, reads every form field, asks ChatGPT how to fill them using your profile, and submits.
+Opens the job URL in a visible browser. The agent reads every form field, asks ChatGPT how to fill them using your profile, and submits — you can watch it work in real time.
 
-**Show the browser while it works** (recommended for first run):
+**Run with browser hidden (background mode):**
 ```powershell
-node agent.js apply "https://company.com/jobs/apply/123" --visible
+node agent.js apply "https://company.com/jobs/apply/123" --hidden
 ```
 
 **What it handles automatically:**
@@ -166,7 +168,7 @@ node agent.js apply "https://company.com/jobs/apply/123" --visible
 | File upload | Uploads your resume PDF |
 | Signature pad | Draws a cursive signature on canvas |
 | Multi-page forms | Clicks Next and continues on the next page |
-| Submission | Clicks Submit and saves a screenshot |
+| Submission | Clicks Submit and saves `application_done.png` |
 
 **Live output example:**
 ```
@@ -204,14 +206,14 @@ Applying: Vaidik Rokad <vaidik@email.com>
 ## All Commands
 
 ```powershell
-node agent.js login                            # Save ChatGPT session (do once)
+node agent.js login                             # Save ChatGPT session (do once)
 
-node agent.js chat                             # Interactive chat
-node agent.js chat --visible                   # Interactive chat (show browser)
-node agent.js ask "your question"              # Single question, print answer, exit
+node agent.js chat                              # Interactive chat (browser visible)
+node agent.js chat --hidden                     # Interactive chat (browser minimized)
+node agent.js ask "your question"               # Single question, print answer, exit
 
-node agent.js apply "URL"                      # Auto-apply to a job
-node agent.js apply "URL" --visible            # Auto-apply (show browser)
+node agent.js apply "URL"                       # Auto-apply to a job (browser visible)
+node agent.js apply "URL" --hidden              # Auto-apply (browser minimized)
 ```
 
 ---
@@ -223,13 +225,13 @@ node agent.js login
   └─ Opens Chrome → you log in → saves cookies to session/session.json
 
 node agent.js chat
-  └─ Loads session → opens chatgpt.com → readline loop
+  └─ Loads session → opens chatgpt.com (visible) → readline loop
        You type → agent types into #prompt-textarea → waits for .markdown to stabilize → prints response
 
 node agent.js apply "URL"
   └─ Opens two browsers:
-       Browser 1 (hidden)  — your ChatGPT session
-       Browser 2 (job URL) — the application form
+       Browser 1 (always hidden) — your ChatGPT session (the AI brain)
+       Browser 2 (visible)       — the job application form
 
      Loop (up to 20 steps):
        1. scrapePageState()  → reads all inputs, selects, checkboxes, canvases, buttons from DOM
@@ -237,6 +239,7 @@ node agent.js apply "URL"
        3. GPT returns JSON   → { actions: [{type, selector, value}], status }
        4. executeAction()    → fill / select / check / upload / signature / click
        5. repeat until status === "done"
+       6. saves application_done.png on completion
 ```
 
 **Why not use the ChatGPT API?**
@@ -248,15 +251,26 @@ This uses your **free ChatGPT account** through a real browser. No API key. No c
 
 ```
 gpt_auth/
-├── agent.js                    ← everything: login + chat + apply
+├── agent.js                    ← CLI entry point (routes commands)
 ├── package.json
 ├── package-lock.json
 ├── .gitignore
 ├── README.md
+├── src/
+│   ├── config.js               ← file paths
+│   ├── browser.js              ← shared browser helpers
+│   ├── gpt.js                  ← ChatGPT session + sendMessage
+│   ├── login.js                ← login command
+│   ├── chat.js                 ← chat command
+│   └── apply/
+│       ├── index.js            ← apply loop
+│       ├── scraper.js          ← DOM scraper
+│       ├── executor.js         ← action executor + signature drawer
+│       └── prompt.js           ← GPT prompt builder + JSON sanitizer
 ├── data/
-│   ├── profile.example.json    ← template (committed — safe to share)
-│   ├── profile.json            ← YOUR INFO (gitignored — never pushed)
-│   └── resume.pdf              ← YOUR RESUME (gitignored — never pushed)
+│   ├── profile.example.json    ← template (safe to share)
+│   ├── profile.json            ← YOUR INFO (gitignored)
+│   └── resume.pdf              ← YOUR RESUME (gitignored)
 └── session/
     └── session.json            ← auto-generated by login (gitignored)
 ```
@@ -283,14 +297,14 @@ npm install
 npx playwright install chromium
 ```
 
-**Session expired / login prompt appears during chat or apply**
+**Session expired / login prompt appears**
 ```powershell
 node agent.js login
 ```
 
 **Dropdown not selecting correctly**
-- Run with `--visible` and watch what happens
-- Screenshots `step_1.png`, `step_2.png`... are saved during the run for debugging
+- Watch the browser — it's visible by default so you can see exactly what's happening
+- The agent auto-retries if GPT returns bad JSON
 
 **Resume PDF not uploading**
 - Check `resumePdfPath` in `data/profile.json` points to a real file

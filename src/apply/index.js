@@ -11,7 +11,7 @@ import { executeAction, autoHandleSpecials } from './executor.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-export async function apply(jobUrl, visible = false) {
+export async function apply(jobUrl, visible = true) {
   if (!fs.existsSync(PROFILE_FILE)) {
     console.error(`✗ Profile not found: ${PROFILE_FILE}`);
     console.error('  Copy data/profile.example.json → data/profile.json and fill in your details.');
@@ -43,7 +43,6 @@ export async function apply(jobUrl, visible = false) {
 
       const pageState = await scrapePageState(appPage);
       console.log(`  Fields: ${pageState.fields.length} | Buttons: ${pageState.buttons.length} | Canvases: ${pageState.canvases.length}`);
-      await appPage.screenshot({ path: path.join(process.cwd(), `step_${step}.png`) }).catch(() => {});
 
       console.log('  🤖 Asking ChatGPT...');
       const raw = await sendMessage(gptPage, buildAgentPrompt(profile, pageState, step));

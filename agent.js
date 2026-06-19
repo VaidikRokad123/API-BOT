@@ -5,7 +5,7 @@ import { openGptSession, sendMessage } from './src/gpt.js';
 
 const mode    = process.argv[2];
 const arg     = process.argv[3];
-const visible = process.argv.includes('--visible');
+const visible = !process.argv.includes('--hidden');
 
 const HELP = `
 ╔══════════════════════════════════════════════════════════════╗
@@ -13,10 +13,9 @@ const HELP = `
 ╠══════════════════════════════════════════════════════════════╣
 ║  node agent.js login                    Save ChatGPT session ║
 ║  node agent.js chat                     Interactive chat      ║
-║  node agent.js chat --visible           Chat (show browser)  ║
 ║  node agent.js ask "question"           One-shot question     ║
 ║  node agent.js apply "url"              Apply for a job       ║
-║  node agent.js apply "url" --visible    Apply (show browser)  ║
+║  node agent.js apply "url" --hidden     Apply (hide browser)  ║
 ╚══════════════════════════════════════════════════════════════╝
 `;
 

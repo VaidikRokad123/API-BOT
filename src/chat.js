@@ -1,6 +1,6 @@
 import { openGptSession, sendMessage } from './gpt.js';
 
-export async function chat(visible = false) {
+export async function chat(visible = true) {
   let browser, page;
   try {
     ({ browser, page } = await openGptSession(visible));
