@@ -34,6 +34,7 @@ export class SeleniumElement {
   async select(...values) {
     await this.driver.executeScript((el, val) => {
       el.value = val;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
     }, this.element, values[0]);
   }
@@ -80,6 +81,11 @@ export class SeleniumPage {
       move: async (x, y) => {
         await this.driver.actions().move({ x: Math.round(x), y: Math.round(y), origin: 'viewport' }).perform();
       },
+      click: async (x, y) => {
+        await this.driver.actions()
+          .move({ x: Math.round(x), y: Math.round(y), origin: 'viewport' })
+          .press().release().perform();
+      },
       down: async () => {
         await this.driver.actions().press().perform();
       },
@@ -98,11 +104,23 @@ export class SeleniumPage {
   }
 
   async evaluate(fn, ...args) {
+    const unwrappedArgs = args.map(arg => arg instanceof SeleniumElement ? arg.element : arg);
+    if (typeof fn === 'function' && fn.constructor.name === 'AsyncFunction') {
+      const script = `
+        const done = arguments[arguments.length - 1];
+        const params = Array.prototype.slice.call(arguments, 0, -1);
+        Promise.resolve((${fn.toString()}).apply(null, params))
+          .then(value => done({ ok: true, value }))
+          .catch(error => done({ ok: false, error: error && error.message ? error.message : String(error) }));
+      `;
+      const result = await this.driver.executeAsyncScript(script, ...unwrappedArgs);
+      if (!result?.ok) throw new Error(result?.error || 'Async page evaluation failed');
+      return result.value;
+    }
+
     const script = typeof fn === 'function'
       ? `return (${fn.toString()}).apply(null, arguments);`
       : fn;
-    
-    const unwrappedArgs = args.map(arg => arg instanceof SeleniumElement ? arg.element : arg);
     return await this.driver.executeScript(script, ...unwrappedArgs);
   }
 

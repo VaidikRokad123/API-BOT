@@ -163,22 +163,34 @@ Positioning: ${research.positioningStatement?.slice(0, 200)}
 
   // Compress fields: only include fields that NEED action
   const actionableFields = pageState.fields.filter(f => {
-    // Skip fields that already have a value (unless they're unchecked checkboxes/radios)
-    if (f.type !== 'checkbox' && f.type !== 'radio' && f.currentValue && f.currentValue.trim()) return false;
-    // Skip disabled fields
     if (f.disabled) return false;
+    if (f.type === 'radio') {
+      const group = f.groupName && pageState.checkboxGroups?.[f.groupName];
+      if (group?.some(option => option.checked)) return false;
+      return !f.checked;
+    }
+    if (f.type === 'checkbox') return !f.checked;
+    if (String(f.currentValue || '').trim()) return false;
     return true;
-  }).slice(0, 40);  // Cap at 40 actionable fields
+  }).sort((a, b) => {
+    const priority = field => field.required ? 0
+      : field.type === 'select' ? 1
+      : field.type === 'file' ? 2
+      : (field.type === 'radio' || field.type === 'checkbox') ? 4
+      : 3;
+    return priority(a) - priority(b);
+  }).slice(0, 40);  // Filled controls drop out on the next loop, revealing the rest
 
   // Compress each field to minimal representation
   const compactFields = actionableFields.map(f => {
     const compact = { label: f.label, type: f.type, selector: f.selector };
     if (f.required) compact.required = true;
     if (f.placeholder) compact.ph = f.placeholder;
-    if (f.type === 'select' && f.options) {
+    if (f.type === 'select' && f.options?.length) {
       // No cap — AI must see ALL options to pick the right one (state dropdown = 50 options)
       compact.options = f.options.filter(o => !o.isPlaceholder).map(o => o.text);
     }
+    if (f.type === 'select' && !f.options?.length) compact.searchable = true;
     if ((f.type === 'checkbox' || f.type === 'radio') && f.checked) compact.checked = true;
     if (f.groupName) compact.group = f.groupName;
     return compact;
@@ -235,11 +247,13 @@ ACTION TYPES:
 FIELD RULES:
 - NEVER use "fill" on checkbox/radio — always "check".
 - NEVER use label text as a selector — always use the selector field from FIELDS[].
-- For select: value must be the EXACT option text shown in options[]. If the target value is not listed, pick the closest match.
+- For select with options[]: value must be the EXACT option text shown. If the target value is not listed, pick the closest match.
+- For a searchable select with no options[]: use the exact profile value; the executor will type it to load matching options.
 - Skip fields that already have a currentValue (unless radio/checkbox).
 - Fill ALL empty required fields before clicking Submit/Next.
 - upload when any file-type field is present. signature when canvas present.
 - Click Submit/Next/Continue LAST after filling all fields on the current section.
+- status "done" is allowed ONLY when the page explicitly says the application was submitted/received. Seeing a Submit button means it is NOT done; click that button after completing the fields.
 
 PROFILE FIELD MAPPING (use these answers for corresponding form questions):
 - "Preferred First Name" / "First Name" → firstName
@@ -289,4 +303,3 @@ JSON SAFETY:
 - Escape double quotes in selectors with backslash or use single quotes: [data-testid='btn']
 `.trim();
 }
-

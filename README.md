@@ -6,7 +6,7 @@ Automate **ChatGPT, Grok, Gemini, Perplexity, or DeepSeek** from the terminal �
 - **Login** — pick a provider and save your session once
 - **Chat** — interactive terminal chat with memory across messages
 - **Ask** — one-shot question, prints the answer, returns
-- **Apply** — researches the company, then AI fills and submits job application forms automatically
+- **Apply** — researches the company, then AI fills and submits job application forms automatically, **including handling complex multi-step OAuth logins (like Google Sign-In) and CAPTCHAs.**
 
 Everything runs from a single interactive console (`node agent.js`). The browser is **visible by default** so you can watch it work.
 
@@ -122,7 +122,7 @@ You only do this **once per provider**. Re-run `/login` if a session expires.
 copy data\profile.example.json data\profile.json
 ```
 
-Fill in `data\profile.json` — this is what the agent uses to answer application questions.
+Fill in `data\profile.json` — this is what the agent uses to answer application questions and automatically log you into job portals.
 
 | Field | What to put |
 |---|---|
@@ -137,6 +137,8 @@ Fill in `data\profile.json` — this is what the agent uses to answer applicatio
 | `resumeLastUpdated` | Date string (e.g. `"2026-06-19"`) indicating when the plain-text resume was updated |
 | `resumePdfPath` | Absolute path to your resume PDF (double backslashes: `"D:\\Docs\\resume.pdf"`) |
 | `resumePdfLastUpdated` | Date string indicating when the PDF resume was updated |
+| `credentials.google` | Your Google username and password (used for automatic Google Sign-In during applications) |
+| `credentials.default` | A fallback username and password for standard login forms |
 
 > [!TIP]
 > The agent validates that `resumeLastUpdated` and `resumePdfLastUpdated` match. If they differ, `/apply` prints a warning to remind you to update your plain-text `resume` content alongside your PDF!
@@ -159,17 +161,13 @@ You: what is React?
 Grok: React is a JavaScript library for building user interfaces...
 ────────────────────────────────────────────────────────────
 
-You: give me a code example
-Grok: Here's a simple component...
-────────────────────────────────────────────────────────────
-
 You: exit
 
   Closing chat... returning to main menu.
 >
 ```
 
-All messages in one chat session share memory. Type `exit`, `quit`, or `/exit` to return to the main console (the provider stays logged in).
+All messages in one chat session share memory. Type `exit`, `quit`, or `/exit` to return to the main console.
 
 ---
 
@@ -179,41 +177,8 @@ Ask the same question to **every provider you're logged into**, then have one of
 merge all the answers into a single best response. A merged answer is more reliable
 than any single model — and it's free.
 
-```
-> /council what is a closure in JavaScript?
-
-  Convening council: Grok, Perplexity
-
-  Asking all providers (this runs in parallel)...
-
-────────────────────────────────────────────────────────────
-  Grok
-────────────────────────────────────────────────────────────
-A closure is a function bundled with its surrounding scope...
-
-────────────────────────────────────────────────────────────
-  Perplexity
-────────────────────────────────────────────────────────────
-In JavaScript, a closure gives you access to an outer function's scope...
-
-────────────────────────────────────────────────────────────
-    1) Grok
-    2) Perplexity
-
-  Which provider should merge all answers? (number, blank to skip): 1
-
-  Grok is merging...
-
-════════════════════════════════════════════════════════════
-  CONSENSUS  (merged by Grok)
-════════════════════════════════════════════════════════════
-A closure is the combination of a function and the lexical scope...
-```
-
-- Uses **all** providers with a saved session automatically; skips ones you haven't logged into.
+- Uses **all** providers with a saved session automatically.
 - Needs **at least 2** providers logged in.
-- All browser windows open visibly so you can watch each AI type.
-- If a session has expired, that provider is skipped and the rest continue.
 
 ---
 
@@ -233,17 +198,30 @@ Then it:
 2. **Loops** (up to 20 steps): scrape the form → ask the AI how to fill it (using your profile + research) → execute → repeat.
 3. **Submits** and saves `application_done.png`.
 
-**What it handles automatically:**
+### NEW: Advanced Application & Login Handling
 
-| | |
+The agent now includes **advanced automation** to handle the most difficult parts of modern job applications:
+
+- **Popup & New Window OAuth:** Detects if a job application opens a "Sign in with Google" or similar popup. It synchronously pauses the main form, switches focus to the popup, and completes the login flow automatically.
+- **Multi-Step Google Sign-In:** Automatically traverses multi-step Google login pages programmatically (Email → Password → Consent / "I agree" → Account Chooser).
+- **Enforced Google Preference:** When faced with multiple login options (LinkedIn, Microsoft, Google), the AI is strictly instructed to use Google Login.
+- **Smart CAPTCHA Pausing:** If a visible CAPTCHA, Cloudflare check, or Google 2FA verification challenge appears, the agent pauses execution, alerts you in the terminal with a beep, and waits for you to manually solve it in the browser window before pressing `ENTER` to resume.
+- **Invisible Field Filtering:** Automatically detects and ignores "phantom" CAPTCHA tokens or visually hidden elements (e.g. `opacity: 0`, `display: none`, or off-screen) so the AI doesn't get confused and try to fill them.
+- **Automatic JSON Safety Bypass:** Includes a robust quote sanitizer to prevent AI providers from breaking execution when generating complex CSS selectors.
+
+### What it handles automatically:
+
+| Field / Action | How it handles it |
 |---|---|
 | Text fields | Name, email, phone, experience, tailored open-ended answers |
-| Dropdowns | Selects the correct option by text |
+| Dropdowns | Selects the correct option by text or fallback DOM injection |
 | Checkboxes | Checks "I agree / accept terms" boxes |
 | File upload | Uploads your resume PDF |
 | Signature pad | Draws a cursive signature on canvas |
 | Multi-page forms | Clicks Next and continues |
-| Salary questions | Quotes a market-appropriate figure, or "as per company standard" when unsure |
+| Salary questions | Quotes a market-appropriate figure |
+| **OAuth Logins** | Clicks "Sign in with Google" and handles popup authorization windows |
+| **CAPTCHAs** | Pauses and asks the user to intervene |
 
 Run with `--hidden` to minimize the form browser.
 
@@ -254,69 +232,12 @@ Run with `--hidden` to minimize the form browser.
 ```
 node agent.js  →  interactive REPL (slash commands)
 
-/login   → pick provider → browser opens → you log in → saves session/<provider>.json + active.json
-
-/model   → select or specify active provider → saves active.json (warns & offers /login if session missing)
-
-/chat    → loads active session → opens provider site (warns & offers /login if session expired) → readline loop
-             You type → agent types into the provider's input → waits for the
-             response to stabilize → prints it
-
 /apply   → Browser 1 (hidden, the AI) + Browser 2 (visible, the form)
              research the company once, then loop:
-               scrape form → AI returns JSON actions → execute → repeat → submit
+               scrape form (filter invisible fields) → AI returns JSON actions → execute → repeat → submit
 ```
 
 **Why not use an official API?** This drives your **existing logged-in account** through a real browser. No API key, no cost, no extra rate limits beyond normal usage.
-
-**Switching providers:** Run `/model` (or `/model <provider>`) to switch between providers without logging in again, provided the session exists. If a session is missing or expired, `/model` or `/chat` will issue a warning and prompt you to log in immediately.
-
----
-
-## Project Structure
-
-```
-gpt_auth/
-├── agent.js                    ← interactive REPL (command router)
-├── package.json
-├── README.md
-├── src/
-│   ├── config.js               ← file paths
-│   ├── browser.js              ← shared Playwright/stealth helpers
-│   ├── ai.js                   ← provider-agnostic session + sendMessage
-│   ├── login.js                ← provider menu + session save
-│   ├── chat.js                 ← chat loop
-│   ├── council.js              ← /council — fan out to all providers + merge
-│   ├── providers/
-│   │   ├── index.js            ← provider registry + waitForStable
-│   │   ├── chatgpt.js          ← ChatGPT selectors
-│   │   ├── grok.js             ← Grok selectors
-│   │   ├── gemini.js           ← Gemini selectors
-│   │   ├── perplexity.js       ← Perplexity selectors
-│   │   └── deepseek.js         ← DeepSeek selectors
-│   └── apply/
-│       ├── index.js            ← apply loop
-│       ├── research.js         ← company/role research step
-│       ├── scraper.js          ← DOM scraper
-│       ├── executor.js         ← action executor + signature drawer
-│       └── prompt.js           ← prompt builder + JSON sanitizer
-├── data/
-│   ├── profile.example.json    ← template (safe to share)
-│   └── profile.json            ← YOUR INFO (gitignored)
-└── session/
-    ├── active.json             ← which provider is active (gitignored)
-    └── <provider>.json         ← saved sessions (gitignored)
-```
-
----
-
-## Private Files (gitignored — never pushed)
-
-| File | Why |
-|---|---|
-| `session/*.json` | Your login cookies — treat like passwords |
-| `data/profile.json` | Name, email, phone, salary — personal info |
-| `data/resume.pdf` | Your actual resume |
 
 ---
 
@@ -325,29 +246,11 @@ gpt_auth/
 **"Login expired" right after logging in**
 The provider's input selector may have drifted (their UI changed). Your session is probably fine — open the site, inspect the input box, and update the `readySelector` in `src/providers/<provider>.js`.
 
-**`/chat` returns the wrong/previous answer**
-Should be fixed — each provider waits for a *new* response element before reading. If it recurs, the response selector in `src/providers/<provider>.js` needs updating.
-
-**"Cannot find module 'playwright'"**
-```powershell
-npm install
-npx playwright install chromium
-```
-
-**Dropdown / field not filling in `/apply`**
-The browser is visible — watch what happens. The agent auto-retries on bad JSON.
+**Agent gets stuck on a CAPTCHA**
+Check your terminal! The agent will detect CAPTCHAs and ask you to press `ENTER` once you have manually solved the challenge in the visible browser window.
 
 **Resume PDF not uploading**
 Check `resumePdfPath` in `data/profile.json` is a real path with double backslashes: `"D:\\Docs\\resume.pdf"`.
-
----
-
-## Adding a New Provider
-
-1. Create `src/providers/<name>.js` exporting `config` (`key`, `name`, `url`, `readySelector`) and `sendMessage(page, text)`.
-2. Register it in `src/providers/index.js` and add it to the `MENU` in `src/login.js`.
-
-That's it — `/chat`, `/ask`, and `/apply` pick it up automatically.
 
 ---
 

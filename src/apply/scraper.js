@@ -1,10 +1,19 @@
+import { isDropdownPlaceholder } from './dropdown.js';
+
 export async function scrapePageState(page) {
-  return await page.evaluate(() => {
+  const pageState = await page.evaluate(() => {
 
     function getSelector(el) {
-      if (el.id) return `#${CSS.escape(el.id)}`;
-      if (el.getAttribute('data-testid')) return `[data-testid='${el.getAttribute('data-testid')}']`;
-      if (el.name) return `[name='${CSS.escape(el.name)}']`;
+      const attrValue = value => String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+        .replace(/\r/g, '\\d ').replace(/\n/g, '\\a ');
+      // Attribute selectors survive JSON/AI round-trips. A CSS id selector such
+      // as #question-1.0 requires a backslash that language models often drop.
+      const fieldOwner = el.getAttribute('role') === 'combobox' && el.closest('[data-test-id]');
+      if (fieldOwner) return `[data-test-id='${attrValue(fieldOwner.getAttribute('data-test-id'))}'] [role='combobox']`;
+      if (el.getAttribute('data-test-id')) return `[data-test-id='${attrValue(el.getAttribute('data-test-id'))}']`;
+      if (el.id) return `[id='${attrValue(el.id)}']`;
+      if (el.getAttribute('data-testid')) return `[data-testid='${attrValue(el.getAttribute('data-testid'))}']`;
+      if (el.name) return `[name='${attrValue(el.name)}']`;
       const parts = []; let cur = el;
       while (cur && cur !== document.body && parts.length < 4) {
         let tag = cur.tagName.toLowerCase();
@@ -16,7 +25,13 @@ export async function scrapePageState(page) {
     }
 
     function getLabel(el) {
-      if (el.id) { const l = document.querySelector(`label[for="${el.id}"]`); if (l) return l.innerText.trim(); }
+      const nativeLabel = Array.from(el.labels || [])[0] ||
+        (el.id ? Array.from(document.querySelectorAll('label')).find(label => label.htmlFor === el.id) : null);
+      if (nativeLabel) return nativeLabel.innerText.trim();
+      const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+        .map(id => document.getElementById(id)?.innerText || document.getElementById(id)?.textContent || '')
+        .join(' ').trim();
+      if (labelledBy) return labelledBy;
       const pl = el.closest('label');
       if (pl) return pl.innerText.replace(el.value || '', '').trim();
       const aria = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('name');
@@ -31,6 +46,16 @@ export async function scrapePageState(page) {
         cur = cur.parentElement;
       }
       return '';
+    }
+
+    function isPlaceholderOption(option) {
+      if (!option) return true;
+      const text = (option.textContent || option.label || '').replace(/\s+/g, ' ').trim();
+      const value = String(option.value ?? '').trim().toLowerCase();
+      return option.disabled || option.hidden ||
+        value === '' || ['default', 'placeholder', 'null', '-1'].includes(value) ||
+        /^(?:[-–—]+\s*)?(?:select|choose|pick)(?:\s+(?:an?|one|your))?(?:\s+option)?(?:\.{3}|…)?$/i.test(text) ||
+        /^(?:please\s+)?select\b/i.test(text) || /^none selected$/i.test(text);
     }
 
     // Form fields
@@ -78,17 +103,19 @@ export async function scrapePageState(page) {
       const label = getLabel(el);
       if (rawType !== 'select' && !label && !el.name && !el.id) return;
 
+      const selectedOption = rawType === 'select' ? el.options[el.selectedIndex] : null;
       const field = {
         label: label.replace(/\s+/g, ' ').trim(),
         type: rawType, selector: getSelector(el),
         required: el.required || el.getAttribute('aria-required') === 'true',
-        disabled: el.disabled, currentValue: el.value || '',
+        disabled: el.disabled,
+        currentValue: rawType === 'select' && isPlaceholderOption(selectedOption) ? '' : (el.value || ''),
         placeholder: el.getAttribute('placeholder') || '',
       };
       if (rawType === 'select') {
         field.options = Array.from(el.options).map(o => ({
           text: o.text.trim(), value: o.value,
-          isPlaceholder: o.disabled || o.value === '' || o.value === 'default',
+          isPlaceholder: isPlaceholderOption(o),
         }));
       }
       if (rawType === 'radio' || rawType === 'checkbox') {
@@ -116,18 +143,20 @@ export async function scrapePageState(page) {
       const lbl = ct.replace(el.options[el.selectedIndex]?.text || '', '').trim().slice(0, 80);
       fields.push({
         label: lbl || `Dropdown (${sel})`, type: 'select', selector: sel,
-        required: el.required, disabled: el.disabled, currentValue: el.value || '',
-        options: Array.from(el.options).map(o => ({ text: o.text.trim(), value: o.value, isPlaceholder: o.disabled || o.value === '' })),
+        required: el.required, disabled: el.disabled,
+        currentValue: isPlaceholderOption(el.options[el.selectedIndex]) ? '' : (el.value || ''),
+        options: Array.from(el.options).map(o => ({ text: o.text.trim(), value: o.value, isPlaceholder: isPlaceholderOption(o) })),
       });
     });
 
     // Custom dropdowns (non-<select>): Workday/Microsoft/React combobox widgets.
     // Options often live in a separate listbox referenced via aria-controls/aria-owns,
     // or inside the closest container. Capture them so AI knows valid choices.
-    const customSel = '[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"], [class*="dropdown"][role], button[aria-expanded]';
+    const customSel = '[role="combobox"], [aria-haspopup="listbox"], [aria-autocomplete="list"], input[list], [data-automation-id*="dropdown" i], [data-automation-id*="select" i]';
     document.querySelectorAll(customSel).forEach(el => {
       const tag = el.tagName.toLowerCase();
       if (tag === 'select') return; // native, already handled
+      if (el.querySelector('select')) return; // wrapper around a native select
       const rect = el.getBoundingClientRect();
       const style = window.getComputedStyle(el);
       if (rect.width === 0 || style.display === 'none' || style.visibility === 'hidden' ||
@@ -135,16 +164,19 @@ export async function scrapePageState(page) {
 
       const sel = getSelector(el);
       if (tracked.has(sel)) return;
+      const existingIndex = fields.findIndex(field => field.selector === sel);
+      if (existingIndex !== -1) fields.splice(existingIndex, 1);
 
       // Find associated listbox
       let listbox = null;
       const ctrlId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
       if (ctrlId) listbox = document.getElementById(ctrlId);
+      if (!listbox && el.getAttribute('list')) listbox = document.getElementById(el.getAttribute('list'));
       if (!listbox) listbox = el.closest('div, fieldset, label')?.querySelector('[role="listbox"], ul[class*="option"], ul[class*="menu"]');
 
       let opts = [];
       if (listbox) {
-        opts = Array.from(listbox.querySelectorAll('[role="option"], li, option'))
+        opts = Array.from(listbox.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"], li[role="presentation"] > :first-child, li:not([role="presentation"]), option'))
           .map(o => (o.innerText || o.textContent || '').trim())
           .filter(t => t && t.length < 100);
       }
@@ -153,7 +185,14 @@ export async function scrapePageState(page) {
 
       const label = getLabel(el) || el.getAttribute('aria-label') ||
         el.closest('div, label')?.querySelector('label')?.innerText?.trim() || `Dropdown (${sel})`;
-      const cur = (el.innerText || el.getAttribute('aria-activedescendant') || '').trim().slice(0, 80);
+      const activeId = el.getAttribute('aria-activedescendant');
+      const activeText = activeId ? document.getElementById(activeId)?.textContent : '';
+      const selectedChild = el.querySelector('[aria-selected="true"], [data-selected="true"]');
+      const rawCurrent = el.value || el.getAttribute('aria-valuetext') || activeText ||
+        selectedChild?.textContent || el.innerText || '';
+      const cur = /^(?:select|choose|pick|search|please\s+(?:select|choose)|none selected)\b/i.test(rawCurrent.trim())
+        ? ''
+        : rawCurrent.trim().slice(0, 80);
 
       fields.push({
         label: label.replace(/\s+/g, ' ').trim().slice(0, 80),
@@ -209,10 +248,114 @@ export async function scrapePageState(page) {
     return {
       url: window.location.href, title: document.title,
       pageText: document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 3000),
-      fields: fields.slice(0, 80),
+      fields: fields.slice(0, 160),
       checkboxGroups: checkboxGroupMap,
       canvases,
       buttons: buttons.slice(0, 25),
     };
   });
+
+  // Normalize native placeholders again outside the browser context. Some ATS
+  // products give "Select an option" a non-empty sentinel value.
+  for (const field of pageState.fields.filter(f => f.type === 'select' && !f.custom)) {
+    field.options = (field.options || []).map(option => ({
+      ...option,
+      isPlaceholder: isDropdownPlaceholder(option),
+    }));
+    const selected = field.options.find(option => String(option.value) === String(field.currentValue));
+    if (isDropdownPlaceholder(selected)) field.currentValue = '';
+  }
+
+  // Most React/Workday-style dropdowns do not render their options until they
+  // are opened. Inspect each empty custom dropdown in isolation, then close it,
+  // so the AI receives the real allowed values instead of guessing.
+  for (const field of pageState.fields.filter(f => f.type === 'select' && f.custom && !f.disabled && !f.options?.length && !f.currentValue)) {
+    try {
+      const trigger = await page.$(field.selector);
+      if (!trigger) continue;
+      await page.evaluate(el => el.scrollIntoView({ block: 'center', inline: 'nearest' }), trigger);
+      await trigger.click();
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      const inspected = await page.evaluate(async (el) => {
+        const isVisible = node => {
+          if (!node) return false;
+          const style = getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' &&
+            style.opacity !== '0' && rect.width > 0 && rect.height > 0;
+        };
+        const clean = text => (text || '').replace(/\s+/g, ' ').trim();
+        const roots = [];
+        const controlledIds = `${el.getAttribute('aria-controls') || ''} ${el.getAttribute('aria-owns') || ''}`
+          .trim().split(/\s+/).filter(Boolean);
+        for (const id of controlledIds) {
+          const root = document.getElementById(id);
+          if (root) roots.push(root);
+        }
+        const localRoot = el.closest('div, fieldset, label')?.querySelector('[role="listbox"], [role="menu"], [class*="menu" i], [class*="options" i]');
+        if (localRoot) roots.push(localRoot);
+        document.querySelectorAll('[role="listbox"], [role="menu"], [class*="select__menu" i], [data-automation-id*="menu" i]')
+          .forEach(root => { if (isVisible(root)) roots.push(root); });
+
+        const optionSelector = '[role="option"], [role="menuitemradio"], [role="menuitem"], li[role="presentation"] > :first-child, option, li:not([role="presentation"]), [data-value], [data-option-index]';
+        const seen = new Set();
+        const options = [];
+        let selectedText = '';
+        const collect = candidates => {
+          for (const option of candidates) {
+            if (!isVisible(option) && !roots.some(root => root.contains(option))) continue;
+            const text = clean(option.innerText || option.textContent || option.getAttribute('aria-label'));
+            if (!text || text.length > 160) continue;
+            if (option.getAttribute('aria-selected') === 'true' || option.selected) selectedText = text;
+            if (seen.has(text)) continue;
+            seen.add(text);
+            options.push({
+              text,
+              value: option.getAttribute('data-value') || option.value || text,
+              isPlaceholder: option.getAttribute('aria-disabled') === 'true' || option.disabled || false,
+            });
+          }
+        };
+
+        if (roots.length) {
+          for (const root of [...new Set(roots)]) {
+            const originalTop = root.scrollTop;
+            let position = 0;
+            for (let pass = 0; pass < 60; pass++) {
+              root.scrollTop = position;
+              await new Promise(resolve => setTimeout(resolve, 25));
+              collect(Array.from(root.querySelectorAll(optionSelector)));
+              const max = Math.max(0, root.scrollHeight - root.clientHeight);
+              if (position >= max) break;
+              position = Math.min(max, position + Math.max(80, root.clientHeight * 0.8));
+            }
+            root.scrollTop = originalTop;
+          }
+        } else {
+          collect(Array.from(document.querySelectorAll('[role="option"], [data-option-index]')).filter(isVisible));
+        }
+
+        const activeId = el.getAttribute('aria-activedescendant');
+        const active = activeId && document.getElementById(activeId);
+        const currentValue = clean(el.value || el.getAttribute('aria-valuetext') ||
+          selectedText || active?.innerText || active?.textContent);
+        return { options, currentValue };
+      }, trigger);
+
+      if (inspected.options?.length) field.options = inspected.options;
+      if (inspected.currentValue && !/^(?:select|choose|pick|search|please\s+(?:select|choose)|none selected)\b/i.test(inspected.currentValue)) {
+        field.currentValue = inspected.currentValue.slice(0, 80);
+      }
+      await page.keyboard.press('Escape').catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const stillOpen = await page.evaluate(el => el.getAttribute('aria-expanded') === 'true', trigger).catch(() => false);
+      if (stillOpen) await trigger.click().catch(() => {});
+    } catch {
+      // A single unusual widget must not prevent the rest of the form scraping.
+      await page.keyboard.press('Escape').catch(() => {});
+    }
+  }
+
+  return pageState;
 }

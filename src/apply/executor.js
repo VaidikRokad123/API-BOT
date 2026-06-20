@@ -1,5 +1,100 @@
 import fs from 'fs';
 import path from 'path';
+import { findBestDropdownOption, findVerifiedDropdownValue, isDropdownPlaceholder, normalizeDropdownText } from './dropdown.js';
+import { attributeSelector, idFromLegacySelector } from './selector.js';
+
+let interactionSequence = 0;
+
+function interactionMarker(kind) {
+  interactionSequence += 1;
+  return `gpt-auth-${kind}-${Date.now()}-${interactionSequence}`;
+}
+
+async function findActionElement(page, selector) {
+  const direct = await page.$(selector).catch(() => null);
+  if (direct) return direct;
+  const legacyId = idFromLegacySelector(selector);
+  return legacyId ? page.$(attributeSelector('id', legacyId)).catch(() => null) : null;
+}
+
+async function clickChoiceControl(page, element) {
+  const marker = interactionMarker('choice');
+  const marked = await page.evaluate((input, token) => {
+    const visible = node => {
+      if (!node) return false;
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    };
+    const explicitLabel = Array.from(input.labels || [])[0] ||
+      (input.id ? Array.from(document.querySelectorAll('label')).find(label => label.htmlFor === input.id) : null);
+    const candidates = [
+      explicitLabel,
+      input.closest('label'),
+      input.closest('[role="radio"], [role="checkbox"]'),
+      input,
+    ];
+    const target = candidates.find(visible) || candidates.find(Boolean);
+    if (!target) return false;
+    target.setAttribute('data-gpt-auth-click-target', token);
+    target.scrollIntoView({ block: 'center', inline: 'nearest' });
+    return true;
+  }, element, marker);
+  if (!marked) return false;
+
+  const target = await page.$(`[data-gpt-auth-click-target='${marker}']`);
+  let clicked = false;
+  if (target) {
+    try {
+      await target.click();
+      clicked = true;
+    } catch {
+      const box = await target.boundingBox().catch(() => null);
+      if (box) {
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        clicked = true;
+      }
+    }
+  }
+  await page.evaluate(token => {
+    document.querySelector(`[data-gpt-auth-click-target='${token}']`)?.removeAttribute('data-gpt-auth-click-target');
+  }, marker).catch(() => {});
+  return clicked;
+}
+
+async function readChoiceState(page, selector) {
+  const current = await findActionElement(page, selector);
+  if (!current) return false;
+  return page.evaluate(element => element.checked === true || element.getAttribute('aria-checked') === 'true' ||
+    element.closest('[role="radio"], [role="checkbox"]')?.getAttribute('aria-checked') === 'true', current).catch(() => false);
+}
+
+async function readCustomSelection(page, selector) {
+  const current = await findActionElement(page, selector);
+  if (!current) return [];
+  return page.evaluate(element => {
+    const values = new Set();
+    const add = value => {
+      const clean = String(value || '').replace(/\s+/g, ' ').trim();
+      if (clean) values.add(clean);
+    };
+    add(element.value);
+    add(element.getAttribute('aria-valuetext'));
+    add(element.innerText);
+    const activeId = element.getAttribute('aria-activedescendant');
+    if (activeId) add(document.getElementById(activeId)?.textContent);
+    const container = element.closest('[data-automation-id*="dropdown" i], [data-automation-id*="select" i], [class*="dropdown" i], [class*="select" i]') ||
+      element.parentElement;
+    container?.querySelectorAll('[aria-selected="true"], [data-selected="true"], [role="combobox"], input[type="hidden"], [class*="selected" i], [class*="title" i]')
+      .forEach(node => {
+        add(node.value);
+        add(node.getAttribute('aria-valuetext'));
+        add(node.getAttribute('aria-label'));
+        add(node.innerText);
+      });
+    return [...values];
+  }, current).catch(() => []);
+}
 
 export async function drawSignature(page, selector) {
   try {
@@ -39,7 +134,7 @@ export async function executeAction(page, action, profile) {
     switch (action.type) {
 
       case 'fill': {
-        const el = await page.$(action.selector);
+        const el = await findActionElement(page, action.selector);
         if (!el) { console.log('    ⚠ Not found'); break; }
         const isDisabled = await page.evaluate(e => e.disabled, el);
         if (isDisabled) { console.log('    ⚠ Disabled'); break; }
@@ -47,20 +142,11 @@ export async function executeAction(page, action, profile) {
         const elType = await page.evaluate(e => (e.getAttribute('type') || e.tagName).toLowerCase(), el);
         if (elType === 'checkbox' || elType === 'radio') {
           console.log(`    ↻ Element is a ${elType}, redirecting to check`);
-          const isChecked = await page.evaluate(e => e.checked, el);
-          if (!isChecked) {
-            const clicked = await page.evaluate(e => {
-              if (e.id) {
-                const lbl = document.querySelector(`label[for="${CSS.escape(e.id)}"]`);
-                if (lbl) { lbl.click(); return true; }
-              }
-              const parentLbl = e.closest('label');
-              if (parentLbl) { parentLbl.click(); return true; }
-              return false;
-            }, el);
-            if (!clicked) await page.evaluate(e => e.click(), el);
-          }
-          console.log('    → Checked ✓');
+          if (!await readChoiceState(page, action.selector)) await clickChoiceControl(page, el);
+          await new Promise(resolve => setTimeout(resolve, 200));
+          console.log(await readChoiceState(page, action.selector)
+            ? '    → Checked ✓'
+            : '    ⚠ Choice did not change after click');
           break;
         }
         if (elType === 'file') {
@@ -90,67 +176,206 @@ export async function executeAction(page, action, profile) {
       }
 
       case 'select': {
-        const el = await page.$(action.selector);
+        const el = await findActionElement(page, action.selector);
         if (!el) { console.log('    ⚠ Not found'); break; }
         const tag = await page.evaluate(e => e.tagName.toLowerCase(), el);
 
         if (tag === 'select') {
-          const allOpts = await page.evaluate(s => Array.from(s.options).map(o => ({ text: o.text.trim(), value: o.value })), el);
-          const target  = String(action.value).toLowerCase().trim();
-          let match = allOpts.find(o => o.text.toLowerCase() === target)
-                   || allOpts.find(o => o.text.toLowerCase().includes(target) || target.includes(o.text.toLowerCase()))
-                   || allOpts.find(o => o.value.toLowerCase() === target);
-          
+          const allOpts = (await page.evaluate(s => Array.from(s.options).map(o => ({
+            text: o.text.trim(), value: o.value, disabled: o.disabled, hidden: o.hidden,
+          })), el)).map(option => ({ ...option, isPlaceholder: isDropdownPlaceholder(option) }));
+          const match = findBestDropdownOption(allOpts, action.value);
+
           if (match) {
             await el.select(match.value);
-            console.log(`    → selected "${match.text}"`);
+            const selected = await page.evaluate(s => ({
+              value: s.value,
+              text: s.options[s.selectedIndex]?.text?.trim() || '',
+            }), el);
+            if (selected.value === match.value || normalizeDropdownText(selected.text) === normalizeDropdownText(match.text)) {
+              console.log(`    → selected "${selected.text}" ✓`);
+            } else {
+              console.log(`    ⚠ Dropdown rejected "${match.text}" (still "${selected.text}")`);
+            }
           } else {
-            // Attempt DOM selection fallback
-            await page.evaluate((selectEl, val) => {
-              const opt = Array.from(selectEl.options).find(o => o.text.trim() === val || o.value === val);
-              if (opt) {
-                selectEl.value = opt.value;
-                selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-              }
-            }, el, action.value);
-            console.log(`    → attempted "${action.value}"`);
+            const available = allOpts.filter(o => !o.isPlaceholder && !o.disabled).map(o => o.text).slice(0, 8);
+            console.log(`    ⚠ "${action.value}" is not an unambiguous option. Available: ${available.join(', ')}`);
           }
         } else {
-          // Custom dropdown handling
-          await el.click().catch(() => {});
-          await new Promise(r => setTimeout(r, 500));
-          const target = String(action.value).toLowerCase().trim();
+          const datalistOptions = await page.evaluate(e => {
+            const list = e.getAttribute('list') && document.getElementById(e.getAttribute('list'));
+            return list ? Array.from(list.options || []).map(o => ({ text: o.label || o.value, value: o.value })) : [];
+          }, el);
+          if (datalistOptions.length) {
+            const match = findBestDropdownOption(datalistOptions, action.value);
+            if (!match) {
+              console.log(`    ⚠ "${action.value}" is not an unambiguous datalist option.`);
+              break;
+            }
+            await el.click().catch(() => {});
+            await page.keyboard.down('Control');
+            await page.keyboard.press('A');
+            await page.keyboard.up('Control');
+            await el.type(String(match.value));
+            await page.keyboard.press('Tab');
+            const actual = await page.evaluate(e => e.value, el);
+            console.log(actual === String(match.value)
+              ? `    → selected "${match.text}" ✓`
+              : `    ⚠ Datalist rejected "${match.text}"`);
+            break;
+          }
 
-          const clicked = await page.evaluate((tgt) => {
-            const selectorList = ['[role="option"]', 'li', '[class*="option"]', 'div', 'span'];
-            for (const selector of selectorList) {
-              const items = Array.from(document.querySelectorAll(selector));
-              const match = items.find(item => item.innerText.toLowerCase().includes(tgt));
-              if (match) {
-                match.click();
-                return true;
+          // Inspect only the opened widget/listbox. Searching arbitrary divs and
+          // spans can click a matching word elsewhere on the application page.
+          await page.evaluate(e => e.scrollIntoView({ block: 'center', inline: 'nearest' }), el);
+          await el.click().catch(() => {});
+          await new Promise(r => setTimeout(r, 350));
+
+          const findVisibleOption = () => {
+            const marker = interactionMarker('option');
+            return page.evaluate(async (trigger, requested, token) => {
+            const normalize = value => String(value || '').normalize('NFKD')
+              .replace(/[\u0300-\u036f]/g, '').replace(/&/g, ' and ')
+              .replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
+            const visible = node => {
+              if (!node) return false;
+              const style = getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return style.display !== 'none' && style.visibility !== 'hidden' &&
+                style.opacity !== '0' && rect.width > 0 && rect.height > 0;
+            };
+            const roots = [];
+            const ids = `${trigger.getAttribute('aria-controls') || ''} ${trigger.getAttribute('aria-owns') || ''}`
+              .trim().split(/\s+/).filter(Boolean);
+            ids.forEach(id => { const root = document.getElementById(id); if (root) roots.push(root); });
+            const local = trigger.closest('div, fieldset, label')?.querySelector('[role="listbox"], [role="menu"], [class*="menu" i], [class*="options" i]');
+            if (local) roots.push(local);
+            document.querySelectorAll('[role="listbox"], [role="menu"], [class*="select__menu" i], [data-automation-id*="menu" i]')
+              .forEach(root => { if (visible(root)) roots.push(root); });
+
+            // Microsoft wraps each real menu item in <li role="presentation">.
+            // Never click that inert wrapper; target its interactive descendant.
+            const selector = '[role="option"], [role="menuitemradio"], [role="menuitem"], li[role="presentation"] > :first-child, option, li:not([role="presentation"]), [data-value], [data-option-index]';
+            const nodes = [...new Set(roots.length
+              ? roots.flatMap(root => Array.from(root.querySelectorAll(selector)))
+              : Array.from(document.querySelectorAll('[role="option"], [data-option-index]')).filter(visible))]
+              .filter(node => visible(node) && node.getAttribute('aria-disabled') !== 'true' && !node.disabled);
+            const target = normalize(requested);
+            const details = nodes.map(node => ({
+              node,
+              text: (node.innerText || node.textContent || node.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim(),
+              value: node.getAttribute('data-value') || node.value || '',
+            })).filter(item => item.text);
+
+            const choose = (items, allowBoundary = target.length >= 4) => {
+              let chosen = items.find(item => normalize(item.text) === target)
+                || items.find(item => normalize(item.value) === target);
+              if (!chosen) {
+                const stripped = items.filter(item => normalize(item.text.replace(/\s*[([][^)\]]*[)\]]\s*$/g, '')) === target);
+                if (stripped.length === 1) chosen = stripped[0];
+              }
+              if (!chosen && allowBoundary) {
+                const boundary = items.filter(item => {
+                  const text = normalize(item.text);
+                  return text.startsWith(`${target} `) || target.startsWith(`${text} `);
+                });
+                if (boundary.length === 1) chosen = boundary[0];
+              }
+              return chosen;
+            };
+            let match = choose(details);
+
+            // A virtualized menu only mounts a few options at a time. Search it
+            // page by page, using exact matching so an off-screen value is safe.
+            if (!match) {
+              for (const root of [...new Set(roots)]) {
+                const originalTop = root.scrollTop;
+                let position = 0;
+                for (let pass = 0; pass < 60; pass++) {
+                  root.scrollTop = position;
+                  await new Promise(resolve => setTimeout(resolve, 25));
+                  const mounted = Array.from(root.querySelectorAll(selector))
+                    .filter(node => visible(node) && node.getAttribute('aria-disabled') !== 'true' && !node.disabled)
+                    .map(node => ({
+                      node,
+                      text: (node.innerText || node.textContent || node.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim(),
+                      value: node.getAttribute('data-value') || node.value || '',
+                    })).filter(item => item.text);
+                  match = choose(mounted, false);
+                  if (match) break;
+                  const max = Math.max(0, root.scrollHeight - root.clientHeight);
+                  if (position >= max) break;
+                  position = Math.min(max, position + Math.max(80, root.clientHeight * 0.8));
+                }
+                if (match) break;
+                root.scrollTop = originalTop;
               }
             }
-            const all = Array.from(document.querySelectorAll('a, button, p, span, div'));
-            const fallbackMatch = all.find(item => item.innerText.toLowerCase().includes(tgt));
-            if (fallbackMatch) {
-              fallbackMatch.click();
-              return true;
-            }
-            return false;
-          }, target);
+            if (!match) return { found: false, options: details.map(item => item.text).slice(0, 12) };
 
-          if (clicked) {
-            console.log(`    → custom dropdown "${action.value}"`);
+            match.node.scrollIntoView({ block: 'nearest' });
+            match.node.setAttribute('data-gpt-auth-option-target', token);
+            return { found: true, marker: token, text: match.text };
+            }, el, String(action.value ?? ''), marker);
+          };
+
+          const activateOption = async found => {
+            if (!found.found) return { ...found, clicked: false };
+            const option = await page.$(`[data-gpt-auth-option-target='${found.marker}']`);
+            if (!option) return { ...found, clicked: false };
+            let clicked = false;
+            try {
+              // ElementHandle.click/WebElement.click sends real pointer events,
+              // which controlled React widgets require to commit their state.
+              await option.click();
+              clicked = true;
+            } catch {
+              const box = await option.boundingBox().catch(() => null);
+              if (box) {
+                await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+                clicked = true;
+              }
+            }
+            await page.evaluate(token => {
+              document.querySelector(`[data-gpt-auth-option-target='${token}']`)?.removeAttribute('data-gpt-auth-option-target');
+            }, found.marker).catch(() => {});
+            return { ...found, clicked };
+          };
+
+          let result = await activateOption(await findVisibleOption());
+          const isEditable = !result.clicked && await page.evaluate(
+            e => e.tagName === 'INPUT' || e.getAttribute('contenteditable') === 'true', el
+          );
+          if (isEditable) {
+            // Searchable comboboxes may render matches only after text input.
+            await el.click().catch(() => {});
+            await page.keyboard.down('Control');
+            await page.keyboard.press('A');
+            await page.keyboard.up('Control');
+            await el.type(String(action.value ?? ''));
+            await new Promise(r => setTimeout(r, 350));
+            result = await activateOption(await findVisibleOption());
+          }
+
+          if (result.clicked) {
+            await new Promise(r => setTimeout(r, 250));
+            const actualValues = await readCustomSelection(page, action.selector);
+            const verifiedValue = findVerifiedDropdownValue(actualValues, result.text);
+            if (verifiedValue) {
+              console.log(`    → selected "${result.text}" (now "${verifiedValue}") ✓`);
+            } else {
+              console.log(`    ⚠ Widget rejected "${result.text}"; selection was not committed`);
+            }
           } else {
-            console.log(`    ⚠ Could not click option for "${action.value}"`);
+            await page.keyboard.press('Escape').catch(() => {});
+            console.log(`    ⚠ No unambiguous visible option for "${action.value}". Available: ${(result.options || []).join(', ')}`);
           }
         }
         break;
       }
 
       case 'click': {
-        let el = await page.$(action.selector);
+        let el = await findActionElement(page, action.selector);
         if (!el) {
           let searchText = action.description || action.value || '';
           const ctok = String(searchText).toLowerCase().replace(/_/g, '');
@@ -227,27 +452,13 @@ export async function executeAction(page, action, profile) {
       }
 
       case 'check': {
-        const el = await page.$(action.selector);
+        const el = await findActionElement(page, action.selector);
         if (!el) { console.log('    ⚠ Not found'); break; }
-        const isChecked = await page.evaluate(e => e.checked, el);
-        if (!isChecked) {
-          // Custom-styled radio/checkbox: click the associated label so the CSS overlay
-          // registers the interaction correctly (direct input click often fails silently)
-          const clicked = await page.evaluate(e => {
-            if (e.id) {
-              const lbl = document.querySelector(`label[for="${CSS.escape(e.id)}"]`);
-              if (lbl) { lbl.click(); return true; }
-            }
-            const parentLbl = e.closest('label');
-            if (parentLbl) { parentLbl.click(); return true; }
-            return false;
-          }, el);
-          if (!clicked) {
-            // Fallback: DOM click on the input itself
-            await page.evaluate(e => e.click(), el);
-          }
-        }
-        console.log('    → Checked ✓');
+        if (!await readChoiceState(page, action.selector)) await clickChoiceControl(page, el);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        console.log(await readChoiceState(page, action.selector)
+          ? '    → Checked ✓'
+          : '    ⚠ Choice did not change after click');
         break;
       }
 
@@ -260,7 +471,7 @@ export async function executeAction(page, action, profile) {
         }
 
         // 1. Direct <input type="file"> — fastest path
-        let fileInput = await page.$(action.selector).catch(() => null);
+        let fileInput = await findActionElement(page, action.selector);
         const isDirectFile = fileInput && await page.evaluate(
           e => e.tagName === 'INPUT' && (e.getAttribute('type') || '').toLowerCase() === 'file',
           fileInput
@@ -282,7 +493,7 @@ export async function executeAction(page, action, profile) {
         console.log('    → No file input found — intercepting native file chooser...');
         const chooserPromise = page.waitForFileChooser({ timeout: 8000 }).catch(() => null);
 
-        const trigger = await page.$(action.selector).catch(() => null);
+        const trigger = await findActionElement(page, action.selector);
         if (trigger) {
           await trigger.click().catch(() => {});
         } else {
@@ -328,7 +539,7 @@ export async function executeAction(page, action, profile) {
 export async function autoHandleSpecials(page, pageState, profile) {
   // 1. Credentials Auto-Login
   if (profile.credentials) {
-    const url = page.url ? page.url() : await page.evaluate(() => window.location.href);
+    const url = page.url ? await page.url() : await page.evaluate(() => window.location.href);
 
     // Google Sign-In helper
     if (url.includes('accounts.google.com') && profile.credentials.google) {

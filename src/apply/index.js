@@ -10,6 +10,7 @@ import { executeAction, autoHandleSpecials } from './executor.js';
 import { researchJob } from './research.js';
 import { handlePopupLogin, detectAndHandlePopup } from './popup-handler.js';
 import { detectCaptcha, pauseForUser } from './captcha.js';
+import { isSubmissionConfirmed } from './completion.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -96,7 +97,8 @@ Return ONLY the JSON, nothing else.`;
     }
 
     const pageText = await appPage.evaluate(() => document.body.innerText);
-    const research = await researchJob(aiPage, appPage.url ? appPage.url() : jobUrl, pageText, profile);
+    const applicationUrl = appPage.url ? await appPage.url() : jobUrl;
+    const research = await researchJob(aiPage, applicationUrl, pageText, profile);
 
     for (let step = 1; step <= 20; step++) {
       console.log(`\n${'═'.repeat(52)}`);
@@ -114,6 +116,12 @@ Return ONLY the JSON, nothing else.`;
 
       const pageState = await scrapePageState(activePage);
       console.log(`  Fields: ${pageState.fields.length} | Buttons: ${pageState.buttons.length} | Canvases: ${pageState.canvases.length}`);
+
+      if (isSubmissionConfirmed(pageState)) {
+        await activePage.screenshot({ path: path.join(process.cwd(), 'application_done.png'), fullPage: true }).catch(() => {});
+        console.log('\n✅ Application submission confirmed! Screenshot → application_done.png\n');
+        break;
+      }
 
       console.log('  🤖 Asking AI...');
       const raw = await sendMessage(aiPage, buildAgentPrompt(profile, pageState, step, research));
@@ -133,15 +141,21 @@ Return ONLY the JSON, nothing else.`;
         }
       }
 
-      if (!agentResp) { step++; continue; }
+      if (!agentResp) continue;
 
       console.log(`\n  💭 ${agentResp.reasoning}`);
       console.log(`  📋 ${agentResp.actions?.length || 0} action(s) | Status: ${agentResp.status}`);
 
-      if (agentResp.status === 'done') {
-        await activePage.screenshot({ path: path.join(process.cwd(), 'application_done.png'), fullPage: true }).catch(() => {});
-        console.log('\n✅ Application submitted! Screenshot → application_done.png\n');
-        break;
+      if (agentResp.status === 'done' && !agentResp.actions?.length) {
+        const submit = pageState.buttons.find(button =>
+          !button.disabled && /^(?:submit|submit application|submit my application)$/i.test(String(button.text || '').trim())
+        );
+        console.log('  ⚠ AI reported done, but the website has not confirmed submission.');
+        agentResp.status = 'continue';
+        if (submit) {
+          console.log('  → Clicking the real submit button, then validating the form again.');
+          agentResp.actions = [{ type: 'click', selector: submit.selector, description: submit.text }];
+        }
       }
       const hasCaptcha = await detectCaptcha(activePage);
       const isCaptchaError = agentResp.status === 'error' && 
@@ -172,6 +186,11 @@ Return ONLY the JSON, nothing else.`;
       }
 
       const fresh = await scrapePageState(activePage);
+      if (isSubmissionConfirmed(fresh)) {
+        await activePage.screenshot({ path: path.join(process.cwd(), 'application_done.png'), fullPage: true }).catch(() => {});
+        console.log('\n✅ Application submission confirmed! Screenshot → application_done.png\n');
+        break;
+      }
       await autoHandleSpecials(activePage, fresh, profile);
     }
   } finally {

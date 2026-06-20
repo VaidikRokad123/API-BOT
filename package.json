@@ -7,7 +7,8 @@
   "scripts": {
     "login": "node agent.js login",
     "chat": "node agent.js chat",
-    "apply": "node agent.js apply"
+    "apply": "node agent.js apply",
+    "test": "node --test test/dropdown.test.js test/completion.test.js test/apply-prompt.test.js test/selector.test.js test/selenium-adapter.test.js"
   },
   "dependencies": {
     "puppeteer": "^25.1.0",
