@@ -122,8 +122,9 @@ RULES:
 - Skip already-filled fields. Check "I agree/accept" boxes.
 - upload when file input present. signature when canvas present.
 - Click Submit/Next LAST.
-- "Thank you" or "submitted" → status "done".
-- NEVER click Back. If this is a job SEARCH page (not application form) → status "error".
+- If this is a Login or Sign-In page (with buttons like "Sign in with Google", "Sign in with Microsoft", etc.), ONLY click the "Sign in with Google" or "Continue with Google" button. Do NOT fill any email or password fields on login pages — the login system handles credentials automatically. Just click the Google button and set status "continue".
+- If you are on accounts.google.com or any OAuth/SSO page, return ZERO actions and set status "continue" — the system handles Google login automatically. Do NOT type emails or passwords.
+- NEVER click Back. If this is a job SEARCH page (not application/login page) → status "error".
 `.trim();
 }
 

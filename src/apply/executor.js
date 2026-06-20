@@ -57,10 +57,21 @@ export async function executeAction(page, action, profile) {
           break;
         }
 
+        let fillValue = action.value;
+        if (fillValue === '__GOOGLE_EMAIL__') {
+          fillValue = profile.credentials?.google?.username || profile.email;
+        } else if (fillValue === '__GOOGLE_PASSWORD__') {
+          fillValue = profile.credentials?.google?.password || '';
+        } else if (fillValue === '__DEFAULT_USERNAME__') {
+          fillValue = profile.credentials?.default?.username || '';
+        } else if (fillValue === '__DEFAULT_PASSWORD__') {
+          fillValue = profile.credentials?.default?.password || '';
+        }
+
         await el.click().catch(() => {});
         await page.evaluate(e => { e.value = ''; }, el);
-        await el.type(String(action.value || ''));
-        console.log(`    → "${String(action.value || '').slice(0, 80)}"`);
+        await el.type(String(fillValue || ''));
+        console.log(`    → "${String(fillValue || '').slice(0, 80)}"`);
         break;
       }
 
@@ -127,11 +138,46 @@ export async function executeAction(page, action, profile) {
       case 'click': {
         let el = await page.$(action.selector);
         if (!el) {
+          let searchText = action.description || action.value || '';
+          if (searchText === '__GOOGLE_EMAIL__') {
+            searchText = profile.credentials?.google?.username || profile.email;
+          } else if (searchText === '__DEFAULT_USERNAME__') {
+            searchText = profile.credentials?.default?.username || '';
+          }
+
           el = await page.evaluateHandle((text) => {
             if (!text) return null;
-            const buttons = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
-            return buttons.find(b => (b.innerText || b.value || '').toLowerCase().includes(text.toLowerCase())) || null;
-          }, action.description || '');
+            const lowerText = text.toLowerCase().trim();
+
+            // 1. Search standard clickable tags (buttons, links, inputs)
+            const standardElements = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
+            const match1 = standardElements.find(b => (b.innerText || b.value || '').toLowerCase().includes(lowerText));
+            if (match1) return match1;
+
+            // 2. Search role="button" or role="link"
+            const roleElements = Array.from(document.querySelectorAll('[role="button"], [role="link"]'));
+            const match2 = roleElements.find(b => (b.innerText || '').toLowerCase().includes(lowerText));
+            if (match2) return match2;
+
+            // 3. Search generic elements (div, span, li, p) that might be styled clickable list items
+            const genericElements = Array.from(document.querySelectorAll('div, span, li, p'));
+
+            // Find most specific (leaf) node containing the text
+            const matches = genericElements.filter(e => {
+              const inner = (e.innerText || '').toLowerCase();
+              return inner.includes(lowerText) && e.children.length === 0;
+            });
+            if (matches.length > 0) return matches[0];
+
+            // Fallback to any element containing the text, sorted by innerText length ascending (smallest container)
+            const allMatches = genericElements.filter(e => (e.innerText || '').toLowerCase().includes(lowerText));
+            if (allMatches.length > 0) {
+              allMatches.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
+              return allMatches[0];
+            }
+
+            return null;
+          }, searchText);
           if (el && !el.asElement()) el = null;
         }
 
@@ -183,6 +229,59 @@ export async function executeAction(page, action, profile) {
 }
 
 export async function autoHandleSpecials(page, pageState, profile) {
+  // 1. Credentials Auto-Login
+  if (profile.credentials) {
+    const url = page.url ? page.url() : await page.evaluate(() => window.location.href);
+
+    // Google Sign-In helper
+    if (url.includes('accounts.google.com') && profile.credentials.google) {
+      const emailInput = await page.$('input[type="email"]');
+      if (emailInput) {
+        const val = await page.evaluate(e => e.value, emailInput);
+        if (!val) {
+          await emailInput.click();
+          await page.keyboard.type(profile.credentials.google.username);
+          const nextBtn = await page.$('#identifierNext button, button');
+          if (nextBtn) await nextBtn.click();
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+      const passwordInput = await page.$('input[type="password"]');
+      if (passwordInput) {
+        const val = await page.evaluate(e => e.value, passwordInput);
+        if (!val) {
+          await passwordInput.click();
+          await page.keyboard.type(profile.credentials.google.password);
+          const nextBtn = await page.$('#passwordNext button, button');
+          if (nextBtn) await nextBtn.click();
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+    } else {
+      // Standard Login Page helper
+      const passwordInput = await page.$('input[type="password"]');
+      if (passwordInput) {
+        const isPassEmpty = await page.evaluate(e => !e.value, passwordInput);
+        if (isPassEmpty) {
+          // Find preceding username/email input
+          const usernameInput = await page.$('input[type="email"], input[name*="user"], input[name*="login"], input[type="text"]');
+          if (usernameInput) {
+            const isUserEmpty = await page.evaluate(e => !e.value, usernameInput);
+            if (isUserEmpty && profile.credentials.default?.username) {
+              await usernameInput.click();
+              await page.keyboard.type(profile.credentials.default.username);
+            }
+          }
+          if (profile.credentials.default?.password) {
+            await passwordInput.click();
+            await page.keyboard.type(profile.credentials.default.password);
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Existing File/Checkbox auto-handlers
   for (const f of pageState.fields) {
     if (f.type === 'file' && !f.currentValue)
       await executeAction(page, { type: 'upload', selector: f.selector, description: f.label }, profile);

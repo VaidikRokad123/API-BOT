@@ -3,6 +3,9 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Builder } from 'selenium-webdriver';
+import chrome from 'selenium-webdriver/chrome.js';
+import { SeleniumBrowser } from './selenium-adapter.js';
 
 // Initialize stealth plugin
 puppeteer.use(StealthPlugin());
@@ -16,6 +19,7 @@ const BROWSER_PREF_FILE = path.join(__dirname, '..', 'session', 'browser.json');
 const ENGINES = {
   chrome:    { name: 'Chrome (Real Installed)' },
   chromium:  { name: 'Chromium (Bundled)' },
+  selenium:  { name: 'Selenium (Chrome Driver)' },
 };
 
 export function readBrowserPref() {
@@ -43,12 +47,38 @@ export function getEngineList() {
 const USER_AGENTS = {
   chrome:   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   chromium: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  selenium: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
 };
 
 // ─── Launch & context ──────────────────────────────────────────────────────
 
 export async function launchBrowser(visible = false, profileSuffix = '') {
   const pref = readBrowserPref();
+
+  if (pref === 'selenium') {
+    const options = new chrome.Options();
+    options.addArguments('--disable-blink-features=AutomationControlled');
+    options.addArguments('--disable-infobars');
+    options.addArguments('--no-sandbox');
+    options.addArguments('--disable-setuid-sandbox');
+
+    const suffix = profileSuffix ? `-${profileSuffix}` : '';
+    const profileDir = path.join(__dirname, '..', 'session', `chrome-profile-selenium${suffix}`);
+    if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true });
+    options.addArguments(`--user-data-dir=${profileDir}`);
+    options.addArguments('--window-size=1280,900');
+
+    if (!visible) {
+      options.addArguments('--headless=new');
+    }
+
+    const driver = await new Builder()
+      .forBrowser('chrome')
+      .setChromeOptions(options)
+      .build();
+
+    return new SeleniumBrowser(driver);
+  }
 
   const launchOpts = {
     headless: false,
@@ -78,6 +108,62 @@ export async function launchBrowser(visible = false, profileSuffix = '') {
 }
 
 export async function newStealthContext(browser, storageStatePath = null) {
+  // If this is a Selenium browser, wrap page creation to inject cookies on navigation
+  if (browser instanceof SeleniumBrowser) {
+    const wrapper = {
+      newPage: async () => {
+        const page = await browser.newPage();
+        const pref = readBrowserPref();
+        await page.setUserAgent(USER_AGENTS[pref] || USER_AGENTS.selenium);
+        await page.setViewport({ width: 1280, height: 900 });
+
+        if (storageStatePath && fs.existsSync(storageStatePath)) {
+          try {
+            const state = JSON.parse(fs.readFileSync(storageStatePath, 'utf8'));
+
+            // Hook goto to load cookies and localStorage on page load
+            const originalGoto = page.goto.bind(page);
+            page.goto = async (url, opts) => {
+              await originalGoto(url, opts);
+
+              // 1. Cookies (domain must match current page)
+              if (state.cookies && state.cookies.length) {
+                await page.setCookie(...state.cookies);
+              }
+
+              // 2. LocalStorage (domain must match current page)
+              if (state.origins && state.origins.length) {
+                const origin = new URL(url).origin;
+                const originEntry = state.origins.find(o => o.origin === origin);
+                if (originEntry && originEntry.localStorage) {
+                  await page.evaluate((items) => {
+                    for (const item of items) {
+                      window.localStorage.setItem(item.name, item.value);
+                    }
+                  }, originEntry.localStorage);
+                }
+              }
+
+              // Reload page to apply changes
+              await originalGoto(url, opts);
+            };
+          } catch (err) {
+            console.error('  Failed to restore storageState in Selenium:', err.message);
+          }
+        }
+        return page;
+      }
+    };
+
+    return new Proxy(wrapper, {
+      get(targetObj, prop) {
+        if (prop in targetObj) return targetObj[prop];
+        const val = browser[prop];
+        return typeof val === 'function' ? val.bind(browser) : val;
+      }
+    });
+  }
+
   const ctx = browser.defaultBrowserContext();
   const originalNewPage = ctx.newPage ? ctx.newPage.bind(ctx) : browser.newPage.bind(browser);
 

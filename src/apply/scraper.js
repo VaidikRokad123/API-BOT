@@ -3,8 +3,8 @@ export async function scrapePageState(page) {
 
     function getSelector(el) {
       if (el.id) return `#${CSS.escape(el.id)}`;
-      if (el.getAttribute('data-testid')) return `[data-testid="${el.getAttribute('data-testid')}"]`;
-      if (el.name) return `[name="${CSS.escape(el.name)}"]`;
+      if (el.getAttribute('data-testid')) return `[data-testid='${el.getAttribute('data-testid')}']`;
+      if (el.name) return `[name='${CSS.escape(el.name)}']`;
       const parts = []; let cur = el;
       while (cur && cur !== document.body && parts.length < 4) {
         let tag = cur.tagName.toLowerCase();
@@ -40,6 +40,16 @@ export async function scrapePageState(page) {
       const rawType = el.tagName.toLowerCase() === 'select' ? 'select'
         : (el.getAttribute('type') || 'text').toLowerCase();
       if (['hidden', 'submit', 'button', 'reset', 'image'].includes(rawType)) return;
+
+      // Skip invisible elements
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      if ((rect.width === 0 && rect.height === 0) || style.display === 'none' || style.visibility === 'hidden') return;
+
+      // Skip captcha token fields
+      const nameOrId = ((el.name || '') + ' ' + (el.id || '')).toLowerCase();
+      if (nameOrId.includes('recaptcha') || nameOrId.includes('captcha') || nameOrId.includes('hcaptcha') || nameOrId.includes('turnstile')) return;
+
       const label = getLabel(el);
       if (rawType !== 'select' && !label && !el.name && !el.id) return;
 
@@ -96,13 +106,35 @@ export async function scrapePageState(page) {
       }
     });
 
-    // Buttons
+    // Buttons and Clickable Elements
     const buttons = [];
-    document.querySelectorAll('button, input[type="submit"], input[type="button"]').forEach(el => {
-      const text = (el.innerText || el.value || '').trim();
-      if (!text) return;
-      buttons.push({ text, selector: getSelector(el), type: el.getAttribute('type') || 'button', disabled: el.disabled });
-    });
+    const seenSelectors = new Set();
+
+    const addBtn = (el) => {
+      const sel = getSelector(el);
+      if (seenSelectors.has(sel)) return;
+      const text = (el.innerText || el.value || '').trim().replace(/\s+/g, ' ');
+      if (!text || text.length > 100) return; // ignore empty or extremely long text
+      seenSelectors.add(sel);
+      buttons.push({
+        text,
+        selector: sel,
+        type: el.getAttribute('role') || el.getAttribute('type') || el.tagName.toLowerCase(),
+        disabled: el.disabled || false
+      });
+    };
+
+    // Priority 1: Standard button/input elements
+    document.querySelectorAll('button, input[type="submit"], input[type="button"]').forEach(addBtn);
+
+    // Priority 2: Interactive roles (custom buttons/links)
+    document.querySelectorAll('[role="button"], [role="link"]').forEach(addBtn);
+
+    // Priority 3: Google Account chooser specific elements
+    document.querySelectorAll('[data-identifier], [data-email], [data-authuser]').forEach(addBtn);
+
+    // Priority 4: Anchor elements (links)
+    document.querySelectorAll('a').forEach(addBtn);
 
     return {
       url: window.location.href, title: document.title,
