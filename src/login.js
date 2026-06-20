@@ -1,7 +1,8 @@
 import fs from 'fs';
+import path from 'path';
 import readline from 'readline';
-import { chromium } from 'playwright';
-import { STEALTH_ARGS, newStealthContext } from './browser.js';
+import puppeteer from 'puppeteer-extra';
+import { launchBrowser, readBrowserPref } from './browser.js';
 import { ACTIVE_FILE, sessionFile } from './config.js';
 import { getProvider } from './providers/index.js';
 
@@ -15,8 +16,6 @@ export const MENU = [
 
 const question = (rl, q) => new Promise((resolve) => rl.question(q, resolve));
 
-// externalRl — the REPL's readline. We MUST reuse it; creating a second
-// interface on the same stdin garbles input. When null (standalone), we own one.
 export async function login(externalRl = null, providerKey = null) {
   const rl    = externalRl ?? readline.createInterface({ input: process.stdin, output: process.stdout });
   const ownRl = !externalRl;
@@ -35,7 +34,6 @@ export async function login(externalRl = null, providerKey = null) {
 
     const answer = (await question(rl, `  Enter 1–${MENU.length} (or blank to cancel): `)).trim();
 
-    // Graceful aborts — never kill the REPL on a typo.
     if (!answer) { console.log('\n  Cancelled.\n'); if (ownRl) rl.close(); return; }
     item = MENU[parseInt(answer, 10) - 1];
   }
@@ -43,32 +41,68 @@ export async function login(externalRl = null, providerKey = null) {
   if (!item) { console.log('\n  Invalid choice — returning to menu.\n'); if (ownRl) rl.close(); return; }
 
   providerKey = item.key;
-  const provider    = getProvider(providerKey);
+  const provider = getProvider(providerKey);
 
   console.log(`\n  A browser window will open → sign in to ${provider.config.name}.`);
 
   let browser;
+  let page;
+  let isCDP = false;
+
   try {
-    browser    = await chromium.launch({ headless: false, args: STEALTH_ARGS });
-    const ctx  = await newStealthContext(browser);
-    const page = await ctx.newPage();
-    await page.goto(provider.config.url);
+    // Try to connect to a manual Chrome instance running with remote debugging port 9222.
+    // This is the most reliable way to bypass Google/Cloudflare bot protection.
+    try {
+      console.log('  Checking for manual Chrome on port 9222...');
+      browser = await puppeteer.connect({ browserURL: 'http://localhost:9222' });
+      console.log('  ✓ Connected to running Chrome on port 9222!');
+      isCDP = true;
+      const pages = await browser.pages();
+      page = pages[0] || await browser.newPage();
+    } catch (e) {
+      console.log('  No manual Chrome on port 9222. Launching new browser...');
+      browser = await launchBrowser(true);
+      page = await browser.newPage();
+    }
+
+    console.log(`  Navigating to ${provider.config.url}...`);
+    await page.goto(provider.config.url, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
 
     await question(rl, '  Once logged in, press ENTER here to save the session... ');
 
-    // Wait for background iframes (auth, payment scripts) to settle before saving.
-    // storageState() fails if a frame is mid-navigation when it's called.
     console.log('  Saving session...');
-    await page.waitForTimeout(3000);
+    await new Promise(r => setTimeout(r, 3000));
+
+    // Save cookies
+    const cookies = await page.cookies();
+
+    // Save localStorage
+    const origin = new URL(provider.config.url).origin;
+    const localStorageData = await page.evaluate(() => {
+      const items = [];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        items.push({ name: key, value: window.localStorage.getItem(key) });
+      }
+      return items;
+    });
+
+    const storageState = {
+      cookies: cookies.map(c => ({
+        name:     c.name,
+        value:    c.value,
+        domain:   c.domain,
+        path:     c.path,
+        expires:  c.expires ?? -1,
+        httpOnly: c.httpOnly ?? false,
+        secure:   c.secure ?? false,
+        sameSite: c.sameSite || 'None',
+      })),
+      origins: [{ origin, localStorage: localStorageData }],
+    };
 
     const sFile = sessionFile(providerKey);
-    try {
-      await ctx.storageState({ path: sFile });
-    } catch {
-      await page.waitForTimeout(3000);
-      await ctx.storageState({ path: sFile });
-    }
-
+    fs.writeFileSync(sFile, JSON.stringify(storageState, null, 2));
     fs.writeFileSync(ACTIVE_FILE, JSON.stringify({ provider: providerKey }, null, 2));
 
     console.log(`\n  ✅ Logged in as ${provider.config.name}`);
@@ -77,7 +111,7 @@ export async function login(externalRl = null, providerKey = null) {
   } catch (e) {
     console.error('\n  ✗ Login failed:', e.message, '\n');
   } finally {
-    if (browser) await browser.close();
+    if (browser && !isCDP) await browser.close();
     if (ownRl) rl.close();
   }
 }
@@ -90,12 +124,10 @@ export async function selectModel(externalRl = null, modelArg = '') {
   const arg = modelArg.trim().toLowerCase();
 
   if (arg) {
-    // Try to match by index first
     const idx = parseInt(arg, 10);
     if (!isNaN(idx) && idx >= 1 && idx <= MENU.length) {
       item = MENU[idx - 1];
     } else {
-      // Match by key or label
       item = MENU.find(p => p.key === arg || p.label.toLowerCase() === arg);
     }
 
@@ -122,7 +154,6 @@ export async function selectModel(externalRl = null, modelArg = '') {
   fs.writeFileSync(ACTIVE_FILE, JSON.stringify({ provider: providerKey }, null, 2));
   console.log(`\n  Active model switched to: ${item.label}`);
 
-  // Check if session file exists
   const sFile = sessionFile(providerKey);
   if (!fs.existsSync(sFile)) {
     console.log(`\n  ⚠️  Warning: Session for ${item.label} is missing.`);

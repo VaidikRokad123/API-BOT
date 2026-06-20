@@ -23,78 +23,107 @@ export function sanitizeGptJson(raw) {
 }
 
 export function buildAgentPrompt(profile, pageState, step, research = null) {
+  // Build a COMPACT profile — exclude the full resume text to save tokens
+  const compactProfile = {
+    name: profile.name,
+    email: profile.email,
+    phone: profile.phone,
+    city: profile.city,
+    linkedin: profile.linkedin,
+    github: profile.github,
+    portfolio: profile.portfolio,
+    yearsOfExperience: profile.yearsOfExperience,
+    currentRole: profile.currentRole,
+    currentCTC: profile.currentCTC,
+    expectedCTC: profile.expectedCTC,
+    noticePeriod: profile.noticePeriod,
+    reasonForLeaving: profile.reasonForLeaving,
+    skills: profile.skills,
+    education: profile.education,
+    resumeSummary: (profile.resume || '').slice(0, 800),  // first 800 chars only
+  };
+
   const researchBlock = research ? `
-JOB RESEARCH (use this to tailor every answer):
-Company      : ${research.companyName}
-Role         : ${research.jobTitle}
-Company Info : ${research.companyContext}
-Key JD Reqs  : ${research.keyRequirements?.join(', ')}
-Matched Skills (priority order): ${research.matchingSkills?.join(', ')}
-Positioning  : ${research.positioningStatement}
-Talking Points: ${research.companyTalkingPoints?.join(' | ')}
-
-SALARY RULES:
-- If the form asks for expected/desired salary → use: "${research.salaryToQuote ?? research.salaryFallback}"
-- If the salary field has a range (min/max) and you are unsure → write: "${research.salaryFallback}"
-- Never quote above market — always match or go slightly lower to maximise selection chances.
-
-SKILLS RULES:
-- In any free-text skills field → list matched skills first: ${research.matchingSkills?.join(', ')}
-- In checkbox/multi-select skill lists → check every skill that appears in matched skills list.
-- In "primary skill" dropdowns → pick the top matched skill: ${research.matchingSkills?.[0]}.
-
-OPEN-ENDED ANSWER RULES:
-- "Why this company?" → reference: ${research.companyTalkingPoints?.[0] ?? research.companyName}
-- "Why this role?" → connect candidate's ${profile.currentRole} background to: ${research.keyRequirements?.[0]}
-- Cover letter / summary → mention company by name, cite a specific JD requirement, keep under 200 words.
-- Any question about strengths → lead with: ${research.matchingSkills?.slice(0, 2).join(' and ')}.
+JOB RESEARCH:
+Company: ${research.companyName} | Role: ${research.jobTitle}
+Context: ${research.companyContext?.slice(0, 200)}
+Key Reqs: ${research.keyRequirements?.join(', ')}
+Matched Skills: ${research.matchingSkills?.join(', ')}
+Salary: ${research.salaryToQuote ?? research.salaryFallback}
+Positioning: ${research.positioningStatement?.slice(0, 200)}
 ` : '';
 
+  // Compress fields: only include fields that NEED action
+  const actionableFields = pageState.fields.filter(f => {
+    // Skip fields that already have a value (unless they're unchecked checkboxes/radios)
+    if (f.type !== 'checkbox' && f.type !== 'radio' && f.currentValue && f.currentValue.trim()) return false;
+    // Skip disabled fields
+    if (f.disabled) return false;
+    return true;
+  }).slice(0, 40);  // Cap at 40 actionable fields
+
+  // Compress each field to minimal representation
+  const compactFields = actionableFields.map(f => {
+    const compact = { label: f.label, type: f.type, selector: f.selector };
+    if (f.required) compact.required = true;
+    if (f.placeholder) compact.ph = f.placeholder;
+    if (f.type === 'select' && f.options) {
+      compact.options = f.options.filter(o => !o.isPlaceholder).map(o => o.text).slice(0, 20);
+    }
+    if ((f.type === 'checkbox' || f.type === 'radio') && f.checked) compact.checked = true;
+    if (f.groupName) compact.group = f.groupName;
+    return compact;
+  });
+
+  // Compress checkbox groups to just list of values
+  const compactGroups = {};
+  for (const [name, opts] of Object.entries(pageState.checkboxGroups || {})) {
+    compactGroups[name] = opts.map(o => o.value);
+  }
+  const groupsBlock = Object.keys(compactGroups).length
+    ? `\nCHECKBOX GROUPS:\n${JSON.stringify(compactGroups)}`
+    : '';
+
+  // Compact buttons — only include relevant ones
+  const relevantButtons = pageState.buttons.filter(b =>
+    !b.disabled &&
+    /apply|submit|next|continue|save|upload|sign|cart/i.test(b.text)
+  ).slice(0, 10);
+  // If no relevant buttons found, include all non-disabled ones (capped)
+  const buttonsToShow = relevantButtons.length
+    ? relevantButtons
+    : pageState.buttons.filter(b => !b.disabled).slice(0, 10);
+
   return `
-You are an AI job application agent on step ${step}. Analyze the current page and return ONLY a raw JSON object — no markdown, no code fences.
+You are an AI job application agent (step ${step}). Return ONLY raw JSON — no markdown.
 
-CANDIDATE PROFILE:
-${JSON.stringify(profile, null, 2)}
+CANDIDATE:
+${JSON.stringify(compactProfile)}
 ${researchBlock}
-CURRENT PAGE:
-URL: ${pageState.url}
+PAGE: ${pageState.url}
 Title: ${pageState.title}
-Page Text: ${pageState.pageText}
+Text: ${pageState.pageText?.slice(0, 1500)}
 
-FORM FIELDS (${pageState.fields.length}):
-${JSON.stringify(pageState.fields, null, 2)}
+FIELDS (${compactFields.length} actionable):
+${JSON.stringify(compactFields)}
+${groupsBlock}
 
-CANVAS ELEMENTS - signature pads (${pageState.canvases.length}):
-${JSON.stringify(pageState.canvases, null, 2)}
+CANVASES: ${JSON.stringify(pageState.canvases)}
 
-BUTTONS (${pageState.buttons.length}):
-${JSON.stringify(pageState.buttons, null, 2)}
+BUTTONS: ${JSON.stringify(buttonsToShow.map(b => ({ text: b.text, selector: b.selector })))}
 
-RETURN THIS EXACT FORMAT:
-{
-  "reasoning": "what you see and plan",
-  "actions": [
-    { "type": "fill",      "selector": "#id",   "value": "text",          "description": "field name" },
-    { "type": "select",    "selector": "#id",   "value": "EXACT option text from options[]", "description": "label" },
-    { "type": "check",     "selector": "#id",   "description": "checkbox label" },
-    { "type": "upload",    "selector": "input[type=file]", "description": "Resume upload" },
-    { "type": "signature", "selector": "canvas","description": "Candidate Signature" },
-    { "type": "click",     "selector": "button","description": "button label" }
-  ],
-  "status": "continue | done | error",
-  "message": "summary"
-}
+FORMAT:
+{"reasoning":"...","actions":[{"type":"fill|select|check|upload|signature|click","selector":"...","value":"...","description":"..."}],"status":"continue|done|error","message":"..."}
 
 RULES:
-- Fill ALL fields on this page before clicking any navigation button.
-- For select dropdowns: use the EXACT .text from the options[] array. Never guess.
-- For Yes/No location questions: compare the job location with candidate's city ("${profile.city}").
-- Check ALL "I agree / accept terms" checkboxes.
-- Include a signature action when a canvas is present.
-- Include an upload action when a file input is present.
-- Click "Next Page" or "Submit Application" LAST after all fields are filled.
-- If you see "Thank you" or "submitted", set status to "done".
-- NEVER click Back buttons.
-- Skip fields that already have a correct currentValue.
+- Fill ALL empty fields before clicking Next/Submit.
+- select: use EXACT text from options[]. check: for checkboxes/radios. fill: for text inputs ONLY.
+- NEVER use "fill" on checkbox/radio — always use "check".
+- Skip already-filled fields. Check "I agree/accept" boxes.
+- upload when file input present. signature when canvas present.
+- Click Submit/Next LAST.
+- "Thank you" or "submitted" → status "done".
+- NEVER click Back. If this is a job SEARCH page (not application form) → status "error".
 `.trim();
 }
+

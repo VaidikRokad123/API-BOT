@@ -44,7 +44,7 @@ export async function apply(jobUrl, visible = true) {
 
   try {
     await appPage.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await appPage.waitForTimeout(3000);
+    await new Promise(r => setTimeout(r, 3000));
 
     const pageText = await appPage.evaluate(() => document.body.innerText);
     const research = await researchJob(aiPage, jobUrl, pageText, profile);

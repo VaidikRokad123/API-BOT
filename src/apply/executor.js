@@ -3,8 +3,9 @@ import path from 'path';
 
 export async function drawSignature(page, selector) {
   try {
-    let canvas = page.locator(selector).first();
-    if (!await canvas.count()) canvas = page.locator('canvas').first();
+    let canvas = await page.$(selector);
+    if (!canvas) canvas = await page.$('canvas');
+    if (!canvas) return;
     const box = await canvas.boundingBox();
     if (!box) return;
 
@@ -38,78 +39,131 @@ export async function executeAction(page, action, profile) {
     switch (action.type) {
 
       case 'fill': {
-        const el = page.locator(action.selector).first();
-        if (!await el.count()) { console.log('    ⚠ Not found'); break; }
-        if (await el.isDisabled()) { console.log('    ⚠ Disabled'); break; }
-        await el.click({ timeout: 3000 }).catch(() => {});
-        await el.fill(String(action.value || ''), { timeout: 5000 });
+        const el = await page.$(action.selector);
+        if (!el) { console.log('    ⚠ Not found'); break; }
+        const isDisabled = await page.evaluate(e => e.disabled, el);
+        if (isDisabled) { console.log('    ⚠ Disabled'); break; }
+
+        const elType = await page.evaluate(e => (e.getAttribute('type') || e.tagName).toLowerCase(), el);
+        if (elType === 'checkbox' || elType === 'radio') {
+          console.log(`    ↻ Element is a ${elType}, redirecting to check`);
+          const isChecked = await page.evaluate(e => e.checked, el);
+          if (!isChecked) await el.click();
+          console.log('    → Checked ✓');
+          break;
+        }
+        if (elType === 'file') {
+          console.log('    ⚠ Cannot fill a file input — use upload action instead');
+          break;
+        }
+
+        await el.click().catch(() => {});
+        await page.evaluate(e => { e.value = ''; }, el);
+        await el.type(String(action.value || ''));
         console.log(`    → "${String(action.value || '').slice(0, 80)}"`);
         break;
       }
 
       case 'select': {
-        const el = page.locator(action.selector).first();
-        if (!await el.count()) { console.log('    ⚠ Not found'); break; }
-        const tag = await el.evaluate(e => e.tagName.toLowerCase());
+        const el = await page.$(action.selector);
+        if (!el) { console.log('    ⚠ Not found'); break; }
+        const tag = await page.evaluate(e => e.tagName.toLowerCase(), el);
 
         if (tag === 'select') {
-          const allOpts = await el.evaluate(s => Array.from(s.options).map(o => ({ text: o.text.trim(), value: o.value })));
+          const allOpts = await page.evaluate(s => Array.from(s.options).map(o => ({ text: o.text.trim(), value: o.value })), el);
           const target  = String(action.value).toLowerCase().trim();
           let match = allOpts.find(o => o.text.toLowerCase() === target)
                    || allOpts.find(o => o.text.toLowerCase().includes(target) || target.includes(o.text.toLowerCase()))
                    || allOpts.find(o => o.value.toLowerCase() === target);
+          
           if (match) {
-            await el.selectOption({ value: match.value });
+            await el.select(match.value);
             console.log(`    → selected "${match.text}"`);
           } else {
-            await el.selectOption({ label: action.value }).catch(() => el.selectOption(action.value).catch(() => {}));
+            // Attempt DOM selection fallback
+            await page.evaluate((selectEl, val) => {
+              const opt = Array.from(selectEl.options).find(o => o.text.trim() === val || o.value === val);
+              if (opt) {
+                selectEl.value = opt.value;
+                selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            }, el, action.value);
             console.log(`    → attempted "${action.value}"`);
           }
         } else {
-          await el.click({ timeout: 3000 });
-          await page.waitForTimeout(500);
-          const target = String(action.value);
-          let clicked = false;
-          for (const sel of [`[role="option"]:has-text("${target}")`, `li:has-text("${target}")`, `[class*="option"]:has-text("${target}")`]) {
-            const opt = page.locator(sel).first();
-            if (await opt.count()) { await opt.click({ timeout: 2000 }); clicked = true; break; }
+          // Custom dropdown handling
+          await el.click().catch(() => {});
+          await new Promise(r => setTimeout(r, 500));
+          const target = String(action.value).toLowerCase().trim();
+
+          const clicked = await page.evaluate((tgt) => {
+            const selectorList = ['[role="option"]', 'li', '[class*="option"]', 'div', 'span'];
+            for (const selector of selectorList) {
+              const items = Array.from(document.querySelectorAll(selector));
+              const match = items.find(item => item.innerText.toLowerCase().includes(tgt));
+              if (match) {
+                match.click();
+                return true;
+              }
+            }
+            const all = Array.from(document.querySelectorAll('a, button, p, span, div'));
+            const fallbackMatch = all.find(item => item.innerText.toLowerCase().includes(tgt));
+            if (fallbackMatch) {
+              fallbackMatch.click();
+              return true;
+            }
+            return false;
+          }, target);
+
+          if (clicked) {
+            console.log(`    → custom dropdown "${action.value}"`);
+          } else {
+            console.log(`    ⚠ Could not click option for "${action.value}"`);
           }
-          if (!clicked) await page.getByText(target, { exact: false }).first().click({ timeout: 2000 }).catch(() => {});
-          console.log(`    → custom dropdown "${target}"`);
         }
         break;
       }
 
       case 'click': {
-        let el = page.locator(action.selector).first();
-        if (!await el.count()) el = page.getByRole('button', { name: action.description || '' });
-        if (!await el.count()) { console.log('    ⚠ Not found'); break; }
-        await el.scrollIntoViewIfNeeded();
-        await el.click({ timeout: 5000 });
-        await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-        await page.waitForTimeout(1200);
+        let el = await page.$(action.selector);
+        if (!el) {
+          el = await page.evaluateHandle((text) => {
+            if (!text) return null;
+            const buttons = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
+            return buttons.find(b => (b.innerText || b.value || '').toLowerCase().includes(text.toLowerCase())) || null;
+          }, action.description || '');
+          if (el && !el.asElement()) el = null;
+        }
+
+        if (!el) { console.log('    ⚠ Not found'); break; }
+        
+        await page.evaluate(e => e.scrollIntoView({ block: 'center', inline: 'nearest' }), el);
+        await el.click();
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 5000 }).catch(() => {});
+        await new Promise(r => setTimeout(r, 1200));
         break;
       }
 
       case 'check': {
-        const el = page.locator(action.selector).first();
-        if (!await el.count()) { console.log('    ⚠ Not found'); break; }
-        if (!await el.isChecked()) await el.check({ timeout: 3000 });
+        const el = await page.$(action.selector);
+        if (!el) { console.log('    ⚠ Not found'); break; }
+        const isChecked = await page.evaluate(e => e.checked, el);
+        if (!isChecked) await el.click();
         console.log('    → Checked ✓');
         break;
       }
 
       case 'upload': {
-        let el = page.locator(action.selector).first();
-        if (!await el.count()) el = page.locator('input[type="file"]').first();
-        if (!await el.count()) { console.log('    ⚠ No file input'); break; }
+        let el = await page.$(action.selector);
+        if (!el) el = await page.$('input[type="file"]');
+        if (!el) { console.log('    ⚠ No file input'); break; }
         const pdfPath = profile.resumePdfPath;
         if (!pdfPath || !fs.existsSync(pdfPath)) {
           console.log(`    ⚠ Resume PDF not found: ${pdfPath}`);
           console.log('    → Set "resumePdfPath" in data/profile.json');
           break;
         }
-        await el.setInputFiles(pdfPath);
+        await el.uploadFile(pdfPath);
         console.log(`    → Uploaded: ${path.basename(pdfPath)}`);
         break;
       }
@@ -122,7 +176,7 @@ export async function executeAction(page, action, profile) {
       default: console.log(`    ⚠ Unknown action: ${action.type}`);
     }
 
-    await page.waitForTimeout(250);
+    await new Promise(r => setTimeout(r, 250));
   } catch (e) {
     console.log(`    ✗ ${e.message.split('\n')[0]}`);
   }

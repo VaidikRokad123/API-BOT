@@ -1,6 +1,7 @@
 import fs from 'fs';
 import readline from 'readline';
 import { ACTIVE_FILE, sessionFile } from './src/config.js';
+import { readBrowserPref, getEngineList, saveBrowserPref } from './src/browser.js';
 
 // ─── Status helpers ────────────────────────────────────────────────────────
 
@@ -38,6 +39,10 @@ function printBanner() {
   } else {
     console.log('  Provider  :  none — run /login to get started');
   }
+
+  const browserPref = readBrowserPref();
+  const browserName = getEngineList().find(e => e.key === browserPref)?.name || browserPref;
+  console.log(`  Browser   :  ${browserName}`);
 
   console.log('\n  Type /help for all commands.\n');
 }
@@ -117,7 +122,13 @@ const COMMANDS = {
     desc:    'AI-driven job application form filler',
     handler: async (args) => {
       const hidden = args.includes('--hidden');
-      const url    = args.replace('--hidden', '').trim();
+      let url      = args.replace('--hidden', '').trim();
+      
+      // Strip surrounding quotes if present
+      if ((url.startsWith('"') && url.endsWith('"')) || (url.startsWith("'") && url.endsWith("'"))) {
+        url = url.slice(1, -1).trim();
+      }
+
       if (!url) { console.log('\n  Usage: /apply <job-url> [--hidden]\n'); return; }
       const { apply } = await import('./src/apply/index.js');
       await apply(url, !hidden);
@@ -130,6 +141,44 @@ const COMMANDS = {
     handler: async (args, rl) => {
       const { council } = await import('./src/council.js');
       await council(args, rl, true);
+    },
+  },
+
+  '/browser': {
+    usage:   '/browser [chromium|firefox|webkit]',
+    desc:    'Switch browser engine (Chromium, Firefox, or WebKit)',
+    handler: async (args, rl) => {
+      const engines = getEngineList();
+      const current = readBrowserPref();
+
+      if (args) {
+        const key = args.toLowerCase().trim();
+        const match = engines.find(e => e.key === key);
+        if (!match) {
+          console.log(`\n  Unknown browser "${key}". Options: ${engines.map(e => e.key).join(', ')}\n`);
+          return;
+        }
+        saveBrowserPref(key);
+        console.log(`\n  ✓ Browser set to ${match.name}\n`);
+        return;
+      }
+
+      // Interactive selection
+      console.log('\n  Select a browser:\n');
+      engines.forEach((e, i) => {
+        const marker = e.key === current ? ' ← active' : '';
+        console.log(`    ${i + 1})  ${e.name}${marker}`);
+      });
+      console.log();
+
+      const answer = await new Promise(resolve => rl.question(`  Enter 1–${engines.length}: `, resolve));
+      const idx = parseInt(answer, 10) - 1;
+      if (idx < 0 || idx >= engines.length) {
+        console.log('\n  Cancelled.\n');
+        return;
+      }
+      saveBrowserPref(engines[idx].key);
+      console.log(`\n  ✓ Browser set to ${engines[idx].name}\n`);
     },
   },
 

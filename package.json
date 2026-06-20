@@ -1,7 +1,7 @@
 {
   "name": "gpt-automation-agent",
   "version": "1.0.0",
-  "description": "Single-file Playwright agent: ChatGPT login, interactive chat, and AI-driven job applications",
+  "description": "Single-file Puppeteer agent: ChatGPT login, interactive chat, and AI-driven job applications",
   "main": "agent.js",
   "type": "module",
   "scripts": {
@@ -10,12 +10,14 @@
     "apply": "node agent.js apply"
   },
   "dependencies": {
-    "playwright": "^1.44.0"
+    "puppeteer": "^25.1.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "keywords": [
     "automation",
     "chatgpt",
-    "playwright",
+    "puppeteer",
     "job-application"
   ],
   "author": "VaidikRokad123",

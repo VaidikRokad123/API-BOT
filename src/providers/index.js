@@ -29,24 +29,28 @@ export async function waitForStable(page, selector, {
   // Phase 1 — ensure the response for THIS message has actually appeared.
   if (afterCount !== null) {
     while (Date.now() - start < maxWait) {
-      if (await page.locator(selector).count() > afterCount) break;
-      await page.waitForTimeout(poll);
+      const count = (await page.$$(selector)).length;
+      if (count > afterCount) break;
+      await new Promise(resolve => setTimeout(resolve, poll));
     }
   }
 
   // Phase 2 — wait for the newest element's text to settle.
   let lastText = '', stableMs = 0;
   while (Date.now() - start < maxWait) {
-    await page.waitForTimeout(poll);
+    await new Promise(resolve => setTimeout(resolve, poll));
 
-    if (stopSelector && await page.locator(stopSelector).count() > 0) {
-      stableMs = 0; continue;
+    if (stopSelector) {
+      const stopCount = (await page.$$(stopSelector)).length;
+      if (stopCount > 0) {
+        stableMs = 0; continue;
+      }
     }
 
-    const els = page.locator(selector);
-    if (!await els.count()) continue;
+    const els = await page.$$(selector);
+    if (!els.length) continue;
 
-    const text = await els.last().innerText().catch(() => '');
+    const text = await page.evaluate(el => el.innerText, els[els.length - 1]).catch(() => '');
     if (!text?.trim()) continue;
 
     if (text === lastText) {

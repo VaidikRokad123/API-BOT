@@ -1,7 +1,5 @@
 import { waitForStable } from './index.js';
 
-// Grok uses a ProseMirror rich-text editor — fill() does not work on it.
-// Must click the .ProseMirror div and use keyboard.type().
 export const config = {
   key:           'grok',
   name:          'Grok',
@@ -12,20 +10,22 @@ export const config = {
 const RESPONSE = '[data-testid="assistant-message"]';
 
 export async function sendMessage(page, text) {
-  const before = await page.locator(RESPONSE).count();
+  const before = (await page.$$(RESPONSE)).length;
 
-  const editor = page.locator('.ProseMirror').first();
+  const editor = await page.$('.ProseMirror');
+  if (!editor) throw new Error('Grok editor area not found');
+
   await editor.click();
 
   // Clear any leftover content, then type
-  await page.keyboard.press('Control+A');
+  await page.keyboard.down('Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up('Control');
   await page.keyboard.press('Delete');
   await page.keyboard.type(text, { delay: 15 });
 
   // Enter sends in Grok's chat UI
   await page.keyboard.press('Enter');
 
-  // afterCount waits for THIS turn's reply to appear — no fixed sleep needed,
-  // so a slow "Thought for 2s" no longer makes us read the previous answer.
   return waitForStable(page, RESPONSE, { afterCount: before, stableFor: 500 });
 }

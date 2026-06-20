@@ -35,6 +35,7 @@ export async function scrapePageState(page) {
 
     // Form fields
     const fields = [];
+    const checkboxGroupMap = {};
     document.querySelectorAll('input, textarea, select').forEach(el => {
       const rawType = el.tagName.toLowerCase() === 'select' ? 'select'
         : (el.getAttribute('type') || 'text').toLowerCase();
@@ -58,8 +59,14 @@ export async function scrapePageState(page) {
       if (rawType === 'radio' || rawType === 'checkbox') {
         field.checked = el.checked;
         if (el.name) {
+          field.groupName = el.name;
           const g = document.querySelectorAll(`input[name="${el.name}"]`);
-          if (g.length > 1) field.groupOptions = Array.from(g).map(r => ({ value: r.value, checked: r.checked }));
+          if (g.length > 1) {
+            // Store group options in a deduplicated map (built below)
+            if (!checkboxGroupMap[el.name]) {
+              checkboxGroupMap[el.name] = Array.from(g).map(r => ({ value: r.value, checked: r.checked }));
+            }
+          }
         }
       }
       fields.push(field);
@@ -100,7 +107,10 @@ export async function scrapePageState(page) {
     return {
       url: window.location.href, title: document.title,
       pageText: document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 3000),
-      fields, canvases, buttons: buttons.slice(0, 25),
+      fields: fields.slice(0, 80),
+      checkboxGroups: checkboxGroupMap,
+      canvases,
+      buttons: buttons.slice(0, 25),
     };
   });
 }
