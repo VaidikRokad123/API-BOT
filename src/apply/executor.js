@@ -48,7 +48,18 @@ export async function executeAction(page, action, profile) {
         if (elType === 'checkbox' || elType === 'radio') {
           console.log(`    ↻ Element is a ${elType}, redirecting to check`);
           const isChecked = await page.evaluate(e => e.checked, el);
-          if (!isChecked) await el.click();
+          if (!isChecked) {
+            const clicked = await page.evaluate(e => {
+              if (e.id) {
+                const lbl = document.querySelector(`label[for="${CSS.escape(e.id)}"]`);
+                if (lbl) { lbl.click(); return true; }
+              }
+              const parentLbl = e.closest('label');
+              if (parentLbl) { parentLbl.click(); return true; }
+              return false;
+            }, el);
+            if (!clicked) await page.evaluate(e => e.click(), el);
+          }
           console.log('    → Checked ✓');
           break;
         }
@@ -194,7 +205,23 @@ export async function executeAction(page, action, profile) {
         const el = await page.$(action.selector);
         if (!el) { console.log('    ⚠ Not found'); break; }
         const isChecked = await page.evaluate(e => e.checked, el);
-        if (!isChecked) await el.click();
+        if (!isChecked) {
+          // Custom-styled radio/checkbox: click the associated label so the CSS overlay
+          // registers the interaction correctly (direct input click often fails silently)
+          const clicked = await page.evaluate(e => {
+            if (e.id) {
+              const lbl = document.querySelector(`label[for="${CSS.escape(e.id)}"]`);
+              if (lbl) { lbl.click(); return true; }
+            }
+            const parentLbl = e.closest('label');
+            if (parentLbl) { parentLbl.click(); return true; }
+            return false;
+          }, el);
+          if (!clicked) {
+            // Fallback: DOM click on the input itself
+            await page.evaluate(e => e.click(), el);
+          }
+        }
         console.log('    → Checked ✓');
         break;
       }

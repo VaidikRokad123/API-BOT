@@ -9,53 +9,10 @@ import { buildAgentPrompt, sanitizeGptJson } from './prompt.js';
 import { executeAction, autoHandleSpecials } from './executor.js';
 import { researchJob } from './research.js';
 import { handlePopupLogin, detectAndHandlePopup } from './popup-handler.js';
-
-import readline from 'readline';
+import { detectCaptcha, pauseForUser } from './captcha.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-
-async function detectCaptcha(page) {
-  try {
-    return await page.evaluate(() => {
-      const selectors = [
-        'iframe[src*="recaptcha"]',
-        'iframe[src*="hcaptcha"]',
-        'iframe[src*="turnstile"]',
-        'iframe[src*="challenge"]',
-        '.g-recaptcha',
-        '.h-captcha',
-        '#cf-challenge-running',
-        '#challenge-form'
-      ];
-      for (const sel of selectors) {
-        const elements = Array.from(document.querySelectorAll(sel));
-        for (const el of elements) {
-          const rect = el.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).display !== 'none') {
-            return true;
-          }
-        }
-      }
-      return false;
-    });
-  } catch {
-    return false;
-  }
-}
-
-function pauseForUser(message) {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-    rl.question(message, () => {
-      rl.close();
-      resolve();
-    });
-  });
-}
 
 export async function apply(jobUrl, visible = true) {
   if (!fs.existsSync(PROFILE_FILE)) {
@@ -206,6 +163,12 @@ Return ONLY the JSON, nothing else.`;
       if (agentResp.actions?.length) {
         console.log('\n  Executing:');
         for (const action of agentResp.actions) await executeAction(activePage, action, profile);
+        // After actions, check if a login popup opened (e.g. after clicking "Sign in with Google")
+        const postPopup = await detectAndHandlePopup(appBrowser, appPage, profile, aiPage, true);
+        if (postPopup) {
+          console.log('  ⏳ Post-action login handled — waiting for auth state to settle (no refresh)...');
+          await new Promise(r => setTimeout(r, 4000));
+        }
       }
 
       const fresh = await scrapePageState(activePage);

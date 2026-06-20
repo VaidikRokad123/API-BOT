@@ -17,15 +17,35 @@ export async function sendMessage(page, text) {
 
   await editor.click();
 
-  // Clear any leftover content, then type
-  await page.keyboard.down('Control');
-  await page.keyboard.press('A');
-  await page.keyboard.up('Control');
-  await page.keyboard.press('Delete');
-  await page.keyboard.type(text, { delay: 15 });
+  // Clear and set ProseMirror content directly using DOM paragraph elements
+  await page.evaluate((el, val) => {
+    el.innerHTML = '';
+    const paragraphs = val.split('\n');
+    for (const pText of paragraphs) {
+      const p = document.createElement('p');
+      p.textContent = pText;
+      el.appendChild(p);
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, editor, text);
 
-  // Enter sends in Grok's chat UI
-  await page.keyboard.press('Enter');
+  await new Promise(r => setTimeout(r, 400));
+
+  // Try to find the send/submit button or press Enter
+  const sendBtn = await page.evaluateHandle(() => {
+    const prs = document.querySelector('.ProseMirror');
+    if (!prs) return null;
+    const parent = prs.closest('div[class*="input"], form, div[class*="container"]');
+    if (!parent) return null;
+    return parent.querySelector('button:has(svg), button[class*="send"], button[class*="submit"]') || null;
+  });
+
+  const sendBtnEl = sendBtn.asElement();
+  if (sendBtnEl) {
+    await sendBtnEl.click().catch(() => {});
+  } else {
+    await page.keyboard.press('Enter');
+  }
 
   return waitForStable(page, RESPONSE, { afterCount: before, stableFor: 500 });
 }

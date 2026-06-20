@@ -44,11 +44,36 @@ export async function scrapePageState(page) {
       // Skip invisible elements
       const rect = el.getBoundingClientRect();
       const style = window.getComputedStyle(el);
-      if ((rect.width === 0 && rect.height === 0) || style.display === 'none' || style.visibility === 'hidden') return;
+      const isChoice = rawType === 'radio' || rawType === 'checkbox';
+
+      if (isChoice) {
+        // Custom-styled radio/checkbox often use opacity:0 or 1px size to hide the native input
+        // while showing a CSS overlay. Only skip if explicitly hidden — never skip by size/opacity.
+        if (style.display === 'none' || style.visibility === 'hidden' ||
+            el.getAttribute('aria-hidden') === 'true' ||
+            el.closest('[aria-hidden="true"]')) {
+          return;
+        }
+      } else {
+        if ((rect.width === 0 && rect.height === 0) ||
+            style.display === 'none' ||
+            style.visibility === 'hidden' ||
+            style.opacity === '0' ||
+            el.getAttribute('aria-hidden') === 'true' ||
+            el.closest('[aria-hidden="true"]')) {
+          return;
+        }
+        // Skip elements positioned off-screen (often phantom token inputs)
+        if (rect.bottom < 0 || rect.right < 0 || rect.left > window.innerWidth || rect.top > window.innerHeight) {
+          if (style.position === 'absolute' || style.position === 'fixed') {
+            return;
+          }
+        }
+      }
 
       // Skip captcha token fields
-      const nameOrId = ((el.name || '') + ' ' + (el.id || '')).toLowerCase();
-      if (nameOrId.includes('recaptcha') || nameOrId.includes('captcha') || nameOrId.includes('hcaptcha') || nameOrId.includes('turnstile')) return;
+      const nameOrId = ((el.name || '') + ' ' + (el.id || '') + ' ' + (el.className || '') + ' ' + (el.getAttribute('placeholder') || '')).toLowerCase();
+      if (nameOrId.includes('recaptcha') || nameOrId.includes('captcha') || nameOrId.includes('hcaptcha') || nameOrId.includes('turnstile') || nameOrId.includes('g-recaptcha') || nameOrId.includes('cf-challenge')) return;
 
       const label = getLabel(el);
       if (rawType !== 'select' && !label && !el.name && !el.id) return;

@@ -17,21 +17,19 @@ export async function sendMessage(page, text) {
 
   await input.click();
 
-  // Clear existing content and type the text
-  await page.evaluate(el => { el.innerHTML = ''; }, input);
-  await page.keyboard.type(text);
+  // Clear and set innerHTML with paragraphs to handle newlines without triggering Enter keypress events
+  await page.evaluate((el, val) => {
+    el.innerHTML = '';
+    const paragraphs = val.split('\n');
+    for (const pText of paragraphs) {
+      const p = document.createElement('p');
+      p.textContent = pText;
+      el.appendChild(p);
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, input, text);
 
-  const filled = await page.evaluate(el => el.innerText, input);
-  if (!filled.trim()) {
-    await page.evaluate(el => {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }, input);
-    await page.keyboard.type(text);
-  }
+  await new Promise(r => setTimeout(r, 400));
 
   const sendBtn = await page.$('button[aria-label="Send message"], button[data-mat-icon-name="send"], button.send-button');
   if (sendBtn) {

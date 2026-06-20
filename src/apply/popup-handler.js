@@ -1,13 +1,13 @@
-// ─── Popup / New-Window Login Handler (AI-Driven) ─────────────────────────
-// Detects login popups/new windows during job applications and uses the same
-// AI-driven scrape → ask → execute loop as the main apply flow.
-// The AI reads the login page and decides what to fill/click, using the
-// credentials from profile.json.
+// ─── Popup / New-Window Login Handler (AI-Driven + Programmatic Fallback) ──
+// Detects login popups/new windows during job applications. For Google logins,
+// it programmatically automates the flow to bypass AI safety filters. For
+// other providers, it uses the AI-driven scrape → ask → execute loop.
 
 import { scrapePageState } from './scraper.js';
 import { executeAction } from './executor.js';
 import { sendMessage } from '../ai.js';
 import { sanitizeGptJson } from './prompt.js';
+import { detectCaptcha, pauseForUser } from './captcha.js';
 
 const LOGIN_URL_PATTERNS = [
   'accounts.google.com',
@@ -53,11 +53,123 @@ async function isPageAlive(page) {
 }
 
 /**
+ * Automates Google Login steps programmatically.
+ * Returns true if it performed an action or paused for user interaction, false otherwise.
+ */
+export async function autoHandleGoogleLogin(page, profile) {
+  let url = '';
+  try {
+    url = page.url();
+  } catch {
+    return false;
+  }
+  if (!url || !url.includes('accounts.google.com')) return false;
+
+  console.log('    [Auto-Login] Checking Google Sign-In page state...');
+  const googleEmail = profile.credentials?.google?.username || profile.email;
+  const pageText = await page.evaluate(() => document.body.innerText).catch(() => '');
+
+  // 1. Verification/2FA challenges — pause immediately, user must solve
+  if (/verify it's you|check your|confirm your recovery|enter code|two-step verification|2-step verification/i.test(pageText)) {
+    console.log('\n⚠️  [PAUSE] Google Sign-In verification/2FA challenge detected!');
+    console.log('   Please solve the challenge in the browser window.');
+    console.log('   Once solved, press ENTER in this terminal to resume...');
+    await pauseForUser('   Press ENTER to resume > ');
+    return true;
+  }
+
+  // 2. Account chooser — must run BEFORE email check so we select the account first
+  if (/choose an account|select an account|use another account|signed out/i.test(pageText)) {
+    const clicked = await page.evaluate((email) => {
+      for (const sel of [`[data-email="${email}"]`, `[data-identifier="${email}"]`, `[data-email*="${email}"]`]) {
+        const el = document.querySelector(sel);
+        if (el) { el.click(); return true; }
+      }
+      const items = Array.from(document.querySelectorAll('div, span, button, p, li'));
+      const match = items.find(el => {
+        const txt = (el.innerText || '').trim().toLowerCase();
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return txt === email.toLowerCase() && rect.width > 0 && style.display !== 'none';
+      });
+      if (match) {
+        (match.closest('button, [role="button"], a, li') || match).click();
+        return true;
+      }
+      return false;
+    }, googleEmail).catch(() => false);
+
+    if (clicked) {
+      console.log(`    [Auto-Login] Clicked Google account: ${googleEmail}`);
+      return true;
+    }
+  }
+
+  // 3. Email input
+  const emailInput = await page.$('input[type="email"]').catch(() => null);
+  if (emailInput) {
+    const val = await page.evaluate(e => e.value, emailInput).catch(() => '');
+    if (!val) {
+      console.log(`    [Auto-Login] Entering Google email: ${googleEmail}`);
+      await emailInput.click().catch(() => {});
+      await page.keyboard.type(googleEmail);
+      await new Promise(r => setTimeout(r, 500));
+      const nextBtn = await page.$('#identifierNext button, button, [role="button"]').catch(() => null);
+      if (nextBtn) { await nextBtn.click().catch(() => {}); console.log('    [Auto-Login] Clicked Next'); }
+      return true;
+    }
+  }
+
+  // 4. Password input
+  const passwordInput = await page.$('input[type="password"]').catch(() => null);
+  if (passwordInput) {
+    const val = await page.evaluate(e => e.value, passwordInput).catch(() => '');
+    if (!val) {
+      const googlePassword = profile.credentials?.google?.password || '';
+      console.log('    [Auto-Login] Entering Google password...');
+      await passwordInput.click().catch(() => {});
+      await page.keyboard.type(googlePassword);
+      await new Promise(r => setTimeout(r, 500));
+      const nextBtn = await page.$('#passwordNext button, button, [role="button"]').catch(() => null);
+      if (nextBtn) { await nextBtn.click().catch(() => {}); console.log('    [Auto-Login] Clicked Next'); }
+      return true;
+    }
+  }
+
+  // 5. Consent/Confirmation/Continue/Allow buttons — return coords for real mouse click
+  const consentCoords = await page.evaluate(() => {
+    const words = [/continue/i, /allow/i, /i agree/i, /confirm/i, /yes/i, /accept/i];
+    const els = Array.from(document.querySelectorAll('button, [role="button"], a'));
+    for (const regex of words) {
+      const el = els.find(e => {
+        const txt = (e.innerText || '').trim();
+        const rect = e.getBoundingClientRect();
+        const style = window.getComputedStyle(e);
+        return regex.test(txt) && txt.length < 30 && rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      });
+      if (el) {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, text: (el.innerText || '').trim().slice(0, 20) };
+      }
+    }
+    return null;
+  }).catch(() => null);
+
+  if (consentCoords) {
+    // Real mouse click — Google ignores programmatic DOM clicks on consent pages
+    await page.mouse.click(consentCoords.x, consentCoords.y);
+    console.log(`    [Auto-Login] Clicked "${consentCoords.text}" (real mouse click)`);
+    await page.waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' }).catch(() => {});
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Build a login-specific prompt for the AI.
- * Includes credentials and instructs the AI to complete the login.
  */
 function buildLoginPrompt(pageState, profile, step) {
-  // Compress fields like the main prompt does
   const compactFields = pageState.fields.map(f => {
     const compact = { label: f.label, type: f.type, selector: f.selector };
     if (f.required) compact.required = true;
@@ -91,17 +203,19 @@ RULES:
 - If there is a password input field: fill it with "__GOOGLE_PASSWORD__".
 - If this is a "Choose an account" or selection page: click the account/option matching the user's email address by outputting a click action on the matching element, or search by text matching "__GOOGLE_EMAIL__".
 - If this is a verification/confirmation page (e.g. click Continue, Verify, Confirm, Yes, Done, I agree, Allow, etc.): click the appropriate button.
-- Only perform ONE logical step per response (e.g. fill email + click Next, OR fill password + click Next, OR click account).
-- Set status "continue" if the page is still open and more actions or fields/buttons need interaction.
-- Set status "done" only when the login is complete and the page is finished.
+- If there are options for multiple login providers (e.g. Google, Microsoft, LinkedIn), ALWAYS choose/click the Google login option. Under NO circumstances should you click Microsoft, LinkedIn, or Email login options.
+- If you are on accounts.google.com and you see a "Continue" or "Allow" button with NO email/password fields: click it immediately. This is a permissions consent page — clicking these buttons is safe and required.
+- NEVER fill email or password on accounts.google.com — the system fills those automatically. On Google auth pages, only click consent/confirm buttons.
+- Do NOT set status "done" if there is any verification, confirmation, "Continue", "Allow", or "I agree" page still visible. Only set status "done" when the popup has closed or navigated back to the main application.
+- Only perform ONE logical step per response.
+- Set status "continue" if the page is still open.
 - NEVER click Back or Cancel.
+- CRITICAL: In your JSON response, escape double quotes in selectors with backslash or use single quotes (e.g. "[data-testid='btn']").
 `.trim();
 }
 
 /**
- * AI-driven login handler. Uses the same scrape → AI → execute loop
- * as the main apply flow, but with a login-specific prompt.
- * Loops until the popup closes or max steps reached.
+ * AI-driven login handler.
  */
 export async function handlePopupLogin(page, profile, aiPage) {
   let url = '';
@@ -128,12 +242,42 @@ export async function handlePopupLogin(page, profile, aiPage) {
 
     console.log(`\n    ── Login Step ${step} ──`);
 
-    // Scrape the popup page (same scraper as main apply)
+    // 1. Programmatic Google handler (email / password / account chooser / consent)
+    // Falls through to AI verification every step so AI can guide remaining steps
+    let currentUrl = '';
+    try { currentUrl = page.url(); } catch {}
+    if (currentUrl.includes('accounts.google.com')) {
+      try {
+        const handled = await autoHandleGoogleLogin(page, profile);
+        if (handled) {
+          await new Promise(r => setTimeout(r, 2500));
+          if (!await isPageAlive(page)) {
+            console.log('  ✓ Login page closed after programmatic action — login complete!');
+            return true;
+          }
+          // Fall through — AI sees updated page and confirms or takes next step
+        }
+      } catch (e) {
+        console.log(`    ⚠ Google auto-login error: ${e.message.split('\n')[0]}`);
+      }
+    }
+
+    // 2. Check for CAPTCHA/Verification Challenge
+    const hasCaptcha = await detectCaptcha(page);
+    if (hasCaptcha) {
+      console.log('\n⚠️  [PAUSE] CAPTCHA or verification challenge detected in the login popup!');
+      console.log('   Please solve the verification in the popup window.');
+      console.log('   Once solved, press ENTER in this terminal to resume...');
+      await pauseForUser('   Press ENTER to resume > ');
+      step--; // retry this step
+      continue;
+    }
+
+    // Scrape page
     let pageState;
     try {
       pageState = await scrapePageState(page);
     } catch {
-      // Page may have closed during scraping
       if (!await isPageAlive(page)) {
         console.log('  ✓ Login page closed — login complete!');
         return true;
@@ -145,7 +289,7 @@ export async function handlePopupLogin(page, profile, aiPage) {
 
     console.log(`    Fields: ${pageState.fields.length} | Buttons: ${pageState.buttons.length}`);
 
-    // Ask AI what to do
+    // Ask AI
     console.log('    🤖 Asking AI about login page...');
     let raw;
     try {
@@ -156,7 +300,7 @@ export async function handlePopupLogin(page, profile, aiPage) {
       continue;
     }
 
-    // Parse AI response
+    // Parse response
     let agentResp = null;
     try {
       agentResp = sanitizeGptJson(raw);
@@ -180,10 +324,9 @@ export async function handlePopupLogin(page, profile, aiPage) {
     console.log(`    💭 ${agentResp.reasoning}`);
     console.log(`    📋 ${agentResp.actions?.length || 0} action(s) | Status: ${agentResp.status}`);
 
-    // Execute actions on the popup page
+    // Execute actions
     if (agentResp.actions?.length) {
       for (const action of agentResp.actions) {
-        // Check if page is still alive before each action
         if (!await isPageAlive(page)) {
           console.log('  ✓ Login page closed during actions — login complete!');
           return true;
@@ -196,16 +339,13 @@ export async function handlePopupLogin(page, profile, aiPage) {
       }
     }
 
-    // Wait for page transitions after actions
     await new Promise(r => setTimeout(r, 3000));
 
-    // Check if popup closed after actions
     if (!await isPageAlive(page)) {
       console.log('  ✓ Login page closed — login complete!');
       return true;
     }
 
-    // If AI says done, wait a bit more for popup to close
     if (agentResp.status === 'done') {
       console.log('    ⏳ AI says login done — waiting for login page to close...');
       for (let i = 0; i < 10; i++) {
@@ -215,7 +355,6 @@ export async function handlePopupLogin(page, profile, aiPage) {
           return true;
         }
       }
-      // Popup didn't close but AI thinks it's done — continue loop to re-evaluate
       console.log('    → Login page still open — re-evaluating...');
     }
   }
@@ -227,10 +366,14 @@ export async function handlePopupLogin(page, profile, aiPage) {
 /**
  * Detect any currently-open login popups/tabs or if the main page itself is a login page,
  * and handle them with AI synchronously.
- * Called at the start of each step in the apply loop.
- * Returns true if a login was handled, or false if no login page is active.
+ * @param {boolean} waitForNew - if true, wait 2.5 s for a freshly-triggered popup to appear
  */
-export async function detectAndHandlePopup(browser, mainPage, profile, aiPage) {
+export async function detectAndHandlePopup(browser, mainPage, profile, aiPage, waitForNew = false) {
+  if (waitForNew) {
+    // Give the browser time to open a popup triggered by the previous click action
+    await new Promise(r => setTimeout(r, 2500));
+  }
+
   let allPages;
   try {
     allPages = await browser.pages();
@@ -244,8 +387,8 @@ export async function detectAndHandlePopup(browser, mainPage, profile, aiPage) {
 
     let url = '';
     try {
-      // Wait up to 5 seconds for URL to become non-blank
-      for (let i = 0; i < 10; i++) {
+      // Wait up to 3 seconds for URL to become non-blank
+      for (let i = 0; i < 6; i++) {
         url = page.url();
         if (url && url !== 'about:blank') break;
         await new Promise(r => setTimeout(r, 500));
