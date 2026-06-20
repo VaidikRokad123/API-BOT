@@ -68,14 +68,17 @@ export async function executeAction(page, action, profile) {
           break;
         }
 
+        // Resolve credential tokens. Match loosely (case-insensitive, underscores
+        // optional) so an AI that drops the __ never types the literal token text.
         let fillValue = action.value;
-        if (fillValue === '__GOOGLE_EMAIL__') {
+        const tok = String(fillValue || '').toLowerCase().replace(/_/g, '');
+        if (tok === 'googleemail') {
           fillValue = profile.credentials?.google?.username || profile.email;
-        } else if (fillValue === '__GOOGLE_PASSWORD__') {
+        } else if (tok === 'googlepassword') {
           fillValue = profile.credentials?.google?.password || '';
-        } else if (fillValue === '__DEFAULT_USERNAME__') {
+        } else if (tok === 'defaultusername') {
           fillValue = profile.credentials?.default?.username || '';
-        } else if (fillValue === '__DEFAULT_PASSWORD__') {
+        } else if (tok === 'defaultpassword') {
           fillValue = profile.credentials?.default?.password || '';
         }
 
@@ -150,9 +153,10 @@ export async function executeAction(page, action, profile) {
         let el = await page.$(action.selector);
         if (!el) {
           let searchText = action.description || action.value || '';
-          if (searchText === '__GOOGLE_EMAIL__') {
+          const ctok = String(searchText).toLowerCase().replace(/_/g, '');
+          if (ctok === 'googleemail') {
             searchText = profile.credentials?.google?.username || profile.email;
-          } else if (searchText === '__DEFAULT_USERNAME__') {
+          } else if (ctok === 'defaultusername') {
             searchText = profile.credentials?.default?.username || '';
           }
 

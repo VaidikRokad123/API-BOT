@@ -1,4 +1,4 @@
-import { waitForStable } from './index.js';
+import { waitForStable, insertPrompt } from './index.js';
 
 export const config = {
   key:           'perplexity',
@@ -12,15 +12,7 @@ const RESPONSE = '.prose';
 export async function sendMessage(page, text) {
   const before = (await page.$$(RESPONSE)).length;
 
-  const input = await page.$('textarea, div[contenteditable="true"]');
-  if (!input) throw new Error('Perplexity input area not found');
-
-  await input.click();
-  await page.keyboard.down('Control');
-  await page.keyboard.press('a');
-  await page.keyboard.up('Control');
-  await page.evaluate((t) => document.execCommand('insertText', false, t), text);
-  await new Promise(r => setTimeout(r, 500));
+  await insertPrompt(page, 'textarea, div[contenteditable="true"]', text);
 
   // Find the submit/send button in the input area
   const sendBtn = await page.evaluateHandle(() => {

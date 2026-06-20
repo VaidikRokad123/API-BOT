@@ -108,30 +108,47 @@ export async function autoHandleGoogleLogin(page, profile) {
   // 3. Email input
   const emailInput = await page.$('input[type="email"]').catch(() => null);
   if (emailInput) {
+    const visible = await page.evaluate(e => {
+      const r = e.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && window.getComputedStyle(e).display !== 'none';
+    }, emailInput).catch(() => false);
     const val = await page.evaluate(e => e.value, emailInput).catch(() => '');
-    if (!val) {
+    if (visible && !val) {
       console.log(`    [Auto-Login] Entering Google email: ${googleEmail}`);
       await emailInput.click().catch(() => {});
-      await page.keyboard.type(googleEmail);
-      await new Promise(r => setTimeout(r, 500));
-      const nextBtn = await page.$('#identifierNext button, button, [role="button"]').catch(() => null);
-      if (nextBtn) { await nextBtn.click().catch(() => {}); console.log('    [Auto-Login] Clicked Next'); }
+      await page.keyboard.type(googleEmail, { delay: 30 });
+      await new Promise(r => setTimeout(r, 400));
+      // Enter submits reliably; #identifierNext as backup
+      await page.keyboard.press('Enter').catch(() => {});
+      const nextBtn = await page.$('#identifierNext').catch(() => null);
+      if (nextBtn) await nextBtn.click().catch(() => {});
+      console.log('    [Auto-Login] Submitted email');
       return true;
     }
   }
 
-  // 4. Password input
+  // 4. Password input — type the REAL password from profile (never a token)
   const passwordInput = await page.$('input[type="password"]').catch(() => null);
   if (passwordInput) {
+    const visible = await page.evaluate(e => {
+      const r = e.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && window.getComputedStyle(e).display !== 'none';
+    }, passwordInput).catch(() => false);
     const val = await page.evaluate(e => e.value, passwordInput).catch(() => '');
-    if (!val) {
+    if (visible && !val) {
       const googlePassword = profile.credentials?.google?.password || '';
+      if (!googlePassword) {
+        console.log('    ⚠ No Google password in profile.credentials.google.password');
+        return false;
+      }
       console.log('    [Auto-Login] Entering Google password...');
       await passwordInput.click().catch(() => {});
-      await page.keyboard.type(googlePassword);
-      await new Promise(r => setTimeout(r, 500));
-      const nextBtn = await page.$('#passwordNext button, button, [role="button"]').catch(() => null);
-      if (nextBtn) { await nextBtn.click().catch(() => {}); console.log('    [Auto-Login] Clicked Next'); }
+      await page.keyboard.type(googlePassword, { delay: 30 });
+      await new Promise(r => setTimeout(r, 400));
+      await page.keyboard.press('Enter').catch(() => {});
+      const nextBtn = await page.$('#passwordNext').catch(() => null);
+      if (nextBtn) await nextBtn.click().catch(() => {});
+      console.log('    [Auto-Login] Submitted password');
       return true;
     }
   }
@@ -215,7 +232,63 @@ RULES:
 }
 
 /**
- * AI-driven login handler.
+ * Deterministic Google login loop — NO AI, NO placeholder tokens.
+ * Drives accounts.google.com purely with real credentials from profile.json
+ * (account chooser → email → password → consent), pausing only for 2FA/CAPTCHA.
+ * Returns when the popup closes or navigates away from Google.
+ */
+async function runGoogleLogin(page, profile) {
+  console.log('  🔐 Google login — deterministic handler (no AI)');
+  const MAX = 20;
+  let idle = 0;
+
+  for (let step = 1; step <= MAX; step++) {
+    if (!await isPageAlive(page)) {
+      console.log('  ✓ Google popup closed — login complete!');
+      return true;
+    }
+
+    let url = '';
+    try { url = page.url(); } catch { return true; }
+    if (!url.includes('accounts.google.com')) {
+      console.log('  ✓ Left Google domain — login complete!');
+      return true;
+    }
+
+    // CAPTCHA / robot check → pause for human
+    if (await detectCaptcha(page)) {
+      console.log('\n⚠️  [PAUSE] CAPTCHA detected on Google login. Solve it in the browser.');
+      await pauseForUser('   Press ENTER to resume > ');
+      continue;
+    }
+
+    let acted = false;
+    try {
+      acted = await autoHandleGoogleLogin(page, profile);
+    } catch (e) {
+      console.log(`    ⚠ Google step error: ${e.message.split('\n')[0]}`);
+    }
+
+    if (acted) {
+      idle = 0;
+      await new Promise(r => setTimeout(r, 2500));
+    } else {
+      // Nothing actionable found — page may still be loading, or waiting on
+      // a manual step (2FA). Wait briefly; bail after a few idle rounds.
+      idle++;
+      if (idle >= 4) {
+        console.log('  ⚠ Google login stuck (no actionable element). May need manual help.');
+        return true;
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  console.log('  ⚠ Google login max steps reached.');
+  return true;
+}
+
+/**
+ * Login handler. Google → deterministic loop. Everything else → AI-driven loop.
  */
 export async function handlePopupLogin(page, profile, aiPage) {
   let url = '';
@@ -223,53 +296,45 @@ export async function handlePopupLogin(page, profile, aiPage) {
 
   console.log(`  🔐 Login page detected: ${url.slice(0, 80)}`);
 
+  // Google auth is fully deterministic — never let the AI touch it (token bugs,
+  // safety refusals). Real credentials only.
+  if (url.includes('accounts.google.com')) {
+    return runGoogleLogin(page, profile);
+  }
+
+  // Non-Google login (company SSO chooser, Okta, etc.) → AI guides clicks.
+  // On a provider-chooser page the AI is told to pick Google; once it lands on
+  // accounts.google.com the next loop iteration hands off to runGoogleLogin.
   const MAX_LOGIN_STEPS = 15;
   const LOGIN_TIMEOUT = 120000; // 2 minutes total
   const startTime = Date.now();
 
   for (let step = 1; step <= MAX_LOGIN_STEPS; step++) {
-    // Check if popup is still open
     if (!await isPageAlive(page)) {
       console.log('  ✓ Login page closed — login complete!');
       return true;
     }
 
-    // Check timeout
     if (Date.now() - startTime > LOGIN_TIMEOUT) {
       console.log('  ⚠ Login timeout (2 min) — may need manual intervention');
       return true;
     }
 
-    console.log(`\n    ── Login Step ${step} ──`);
-
-    // 1. Programmatic Google handler (email / password / account chooser / consent)
-    // Falls through to AI verification every step so AI can guide remaining steps
+    // Hand off the moment we reach Google.
     let currentUrl = '';
     try { currentUrl = page.url(); } catch {}
     if (currentUrl.includes('accounts.google.com')) {
-      try {
-        const handled = await autoHandleGoogleLogin(page, profile);
-        if (handled) {
-          await new Promise(r => setTimeout(r, 2500));
-          if (!await isPageAlive(page)) {
-            console.log('  ✓ Login page closed after programmatic action — login complete!');
-            return true;
-          }
-          // Fall through — AI sees updated page and confirms or takes next step
-        }
-      } catch (e) {
-        console.log(`    ⚠ Google auto-login error: ${e.message.split('\n')[0]}`);
-      }
+      return runGoogleLogin(page, profile);
     }
 
-    // 2. Check for CAPTCHA/Verification Challenge
-    const hasCaptcha = await detectCaptcha(page);
-    if (hasCaptcha) {
+    console.log(`\n    ── Login Step ${step} ──`);
+
+    // CAPTCHA check
+    if (await detectCaptcha(page)) {
       console.log('\n⚠️  [PAUSE] CAPTCHA or verification challenge detected in the login popup!');
-      console.log('   Please solve the verification in the popup window.');
-      console.log('   Once solved, press ENTER in this terminal to resume...');
+      console.log('   Solve it in the browser, then press ENTER here to resume...');
       await pauseForUser('   Press ENTER to resume > ');
-      step--; // retry this step
+      step--;
       continue;
     }
 

@@ -1,4 +1,4 @@
-import { waitForStable } from './index.js';
+import { waitForStable, insertPrompt } from './index.js';
 
 export const config = {
   key:           'chatgpt',
@@ -54,15 +54,8 @@ export async function sendMessage(page, text) {
     throw new Error(`ChatGPT text area not visible — may be blocked by a modal/CAPTCHA. Error: ${e.message}`);
   }
 
-  const textarea = await page.$('#prompt-textarea');
   try {
-    await textarea.click();
-    // Select-all + execCommand insertText — atomic, React-compatible, no char-by-char risks
-    await page.keyboard.down('Control');
-    await page.keyboard.press('a');
-    await page.keyboard.up('Control');
-    await page.evaluate((t) => document.execCommand('insertText', false, t), text);
-    await new Promise(r => setTimeout(r, 500));
+    await insertPrompt(page, '#prompt-textarea', text);
   } catch (e) {
     throw new Error(`Failed to type prompt into ChatGPT. Error: ${e.message}`);
   }

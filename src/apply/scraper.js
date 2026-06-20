@@ -121,6 +121,51 @@ export async function scrapePageState(page) {
       });
     });
 
+    // Custom dropdowns (non-<select>): Workday/Microsoft/React combobox widgets.
+    // Options often live in a separate listbox referenced via aria-controls/aria-owns,
+    // or inside the closest container. Capture them so AI knows valid choices.
+    const customSel = '[role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="true"], [class*="dropdown"][role], button[aria-expanded]';
+    document.querySelectorAll(customSel).forEach(el => {
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'select') return; // native, already handled
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      if (rect.width === 0 || style.display === 'none' || style.visibility === 'hidden' ||
+          el.getAttribute('aria-hidden') === 'true') return;
+
+      const sel = getSelector(el);
+      if (tracked.has(sel)) return;
+
+      // Find associated listbox
+      let listbox = null;
+      const ctrlId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+      if (ctrlId) listbox = document.getElementById(ctrlId);
+      if (!listbox) listbox = el.closest('div, fieldset, label')?.querySelector('[role="listbox"], ul[class*="option"], ul[class*="menu"]');
+
+      let opts = [];
+      if (listbox) {
+        opts = Array.from(listbox.querySelectorAll('[role="option"], li, option'))
+          .map(o => (o.innerText || o.textContent || '').trim())
+          .filter(t => t && t.length < 100);
+      }
+      // Dedup
+      opts = [...new Set(opts)];
+
+      const label = getLabel(el) || el.getAttribute('aria-label') ||
+        el.closest('div, label')?.querySelector('label')?.innerText?.trim() || `Dropdown (${sel})`;
+      const cur = (el.innerText || el.getAttribute('aria-activedescendant') || '').trim().slice(0, 80);
+
+      fields.push({
+        label: label.replace(/\s+/g, ' ').trim().slice(0, 80),
+        type: 'select', selector: sel, custom: true,
+        required: el.getAttribute('aria-required') === 'true',
+        disabled: el.getAttribute('aria-disabled') === 'true',
+        currentValue: cur,
+        options: opts.map(t => ({ text: t, value: t, isPlaceholder: false })),
+      });
+      tracked.add(sel);
+    });
+
     // Canvases (signature pads)
     const canvases = [];
     document.querySelectorAll('canvas').forEach(el => {

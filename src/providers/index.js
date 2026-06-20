@@ -13,6 +13,41 @@ export function getProvider(key) {
   return PROVIDERS[key];
 }
 
+// Reliably insert a full prompt into a focused input (textarea or contenteditable).
+// Uses execCommand('insertText') — atomic and registered by React/ProseMirror as
+// real user input. Verifies the text landed; falls back to keyboard.type with
+// newlines neutralised (so a stray \n never triggers premature submit).
+export async function insertPrompt(page, selector, text) {
+  const el = await page.$(selector);
+  if (!el) throw new Error(`Input not found: ${selector}`);
+  await el.click();
+
+  // Select-all then replace
+  await page.keyboard.down('Control');
+  await page.keyboard.press('a');
+  await page.keyboard.up('Control');
+  await page.evaluate((t) => document.execCommand('insertText', false, t), text);
+  await new Promise(r => setTimeout(r, 500));
+
+  // Verify the prompt actually landed
+  const got = await page.evaluate(s => {
+    const e = document.querySelector(s);
+    if (!e) return '';
+    return (e.value !== undefined && e.value !== '') ? e.value : (e.innerText || '');
+  }, selector).catch(() => '');
+
+  if (got.replace(/\s/g, '').length < text.replace(/\s/g, '').length * 0.5) {
+    // Fallback: type with newlines turned into spaces to avoid auto-submit
+    await el.click();
+    await page.keyboard.down('Control');
+    await page.keyboard.press('a');
+    await page.keyboard.up('Control');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type(text.replace(/\r?\n/g, ' '));
+    await new Promise(r => setTimeout(r, 400));
+  }
+}
+
 // Shared response reader. Two phases:
 //   1. (if afterCount set) wait until a NEW response element appears — this is
 //      what prevents reading the PREVIOUS turn's answer on multi-turn chats.
