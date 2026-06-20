@@ -48,6 +48,37 @@ export async function scrapePageState(page) {
       return '';
     }
 
+    function getChoiceQuestion(el, optionLabel) {
+      const clean = value => (value || '').replace(/\s+/g, ' ').trim();
+      const candidates = [];
+      const add = nodeOrText => {
+        const text = clean(typeof nodeOrText === 'string' ? nodeOrText : nodeOrText?.innerText || nodeOrText?.textContent);
+        if (text && text.toLowerCase() !== clean(optionLabel).toLowerCase() && text.length <= 700) candidates.push(text);
+      };
+
+      const contextIds = `${el.getAttribute('aria-describedby') || ''} ${el.getAttribute('aria-labelledby') || ''}`
+        .trim().split(/\s+/).filter(Boolean);
+      contextIds.forEach(id => add(document.getElementById(id)));
+
+      const group = el.name
+        ? Array.from(document.querySelectorAll('input')).filter(input => input.name === el.name)
+        : [el];
+      let common = el.parentElement;
+      while (common && !group.every(input => common.contains(input))) common = common.parentElement;
+
+      let cursor = common;
+      for (let depth = 0; depth < 5 && cursor; depth++, cursor = cursor.parentElement) {
+        add(cursor.previousElementSibling);
+        add(cursor.querySelector(':scope > legend, :scope > label, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > p'));
+        add(cursor);
+      }
+
+      const unique = [...new Set(candidates)]
+        .filter(text => !/^(?:yes|no|true|false)(?:\s+(?:yes|no|true|false))*$/i.test(text));
+      return (unique.filter(text => text.includes('?')).sort((a, b) => a.length - b.length)[0] ||
+        unique.filter(text => text.length >= 12).sort((a, b) => a.length - b.length)[0] || '').slice(0, 500);
+    }
+
     function isPlaceholderOption(option) {
       if (!option) return true;
       const text = (option.textContent || option.label || '').replace(/\s+/g, ' ').trim();
@@ -120,6 +151,7 @@ export async function scrapePageState(page) {
       }
       if (rawType === 'radio' || rawType === 'checkbox') {
         field.checked = el.checked;
+        field.question = getChoiceQuestion(el, field.label);
         if (el.name) {
           field.groupName = el.name;
           const g = document.querySelectorAll(`input[name="${el.name}"]`);
@@ -293,10 +325,14 @@ export async function scrapePageState(page) {
           const root = document.getElementById(id);
           if (root) roots.push(root);
         }
-        const localRoot = el.closest('div, fieldset, label')?.querySelector('[role="listbox"], [role="menu"], [class*="menu" i], [class*="options" i]');
-        if (localRoot) roots.push(localRoot);
-        document.querySelectorAll('[role="listbox"], [role="menu"], [class*="select__menu" i], [data-automation-id*="menu" i]')
-          .forEach(root => { if (isVisible(root)) roots.push(root); });
+        if (!roots.length) {
+          const localRoot = el.closest('div, fieldset, label')?.querySelector('[role="listbox"], [role="menu"], [class*="menu" i], [class*="options" i]');
+          if (localRoot) roots.push(localRoot);
+        }
+        if (!roots.length) {
+          document.querySelectorAll('[role="listbox"], [role="menu"], [class*="select__menu" i], [data-automation-id*="menu" i]')
+            .forEach(root => { if (isVisible(root)) roots.push(root); });
+        }
 
         const optionSelector = '[role="option"], [role="menuitemradio"], [role="menuitem"], li[role="presentation"] > :first-child, option, li:not([role="presentation"]), [data-value], [data-option-index]';
         const seen = new Set();

@@ -38,3 +38,24 @@ test('dotted field IDs survive the JSON action round-trip without CSS escapes', 
   }));
   assert.equal(parsed.actions[0].selector, selector);
 });
+
+test('radio options include their full question context', () => {
+  const prompt = buildAgentPrompt({}, {
+    url: 'https://jobs.example.com/apply', title: 'Apply', pageText: '',
+    fields: [
+      {
+        label: 'Yes', type: 'radio', selector: "[id='question-1-0.0']", required: true,
+        groupName: 'question-1', question: 'Do you have at least five years of tax-management experience?', checked: false,
+      },
+      {
+        label: 'No', type: 'radio', selector: "[id='question-1-1.0']", required: true,
+        groupName: 'question-1', question: 'Do you have at least five years of tax-management experience?', checked: false,
+      },
+    ],
+    checkboxGroups: { 'question-1': [{ value: '0.0', checked: false }, { value: '1.0', checked: false }] },
+    canvases: [], buttons: [],
+  }, 1);
+
+  assert.match(prompt, /"question":"Do you have at least five years of tax-management experience\?"/);
+  assert.match(prompt, /For every unanswered required radio group/);
+});

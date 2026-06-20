@@ -248,17 +248,25 @@ export async function executeAction(page, action, profile) {
             const ids = `${trigger.getAttribute('aria-controls') || ''} ${trigger.getAttribute('aria-owns') || ''}`
               .trim().split(/\s+/).filter(Boolean);
             ids.forEach(id => { const root = document.getElementById(id); if (root) roots.push(root); });
-            const local = trigger.closest('div, fieldset, label')?.querySelector('[role="listbox"], [role="menu"], [class*="menu" i], [class*="options" i]');
-            if (local) roots.push(local);
-            document.querySelectorAll('[role="listbox"], [role="menu"], [class*="select__menu" i], [data-automation-id*="menu" i]')
-              .forEach(root => { if (visible(root)) roots.push(root); });
+            if (!roots.length) {
+              const local = trigger.closest('div, fieldset, label')?.querySelector('[role="listbox"], [role="menu"], [class*="menu" i], [class*="options" i]');
+              if (local) roots.push(local);
+            }
+            if (!roots.length) {
+              document.querySelectorAll('[role="listbox"], [role="menu"], [class*="select__menu" i], [data-automation-id*="menu" i]')
+                .forEach(root => { if (visible(root)) roots.push(root); });
+            }
 
             // Microsoft wraps each real menu item in <li role="presentation">.
             // Never click that inert wrapper; target its interactive descendant.
             const selector = '[role="option"], [role="menuitemradio"], [role="menuitem"], li[role="presentation"] > :first-child, option, li:not([role="presentation"]), [data-value], [data-option-index]';
-            const nodes = [...new Set(roots.length
+            const clickableNode = node => node.matches('[role="option"], [role="menuitemradio"], [role="menuitem"], button, a')
+              ? node
+              : node.querySelector('[role="option"], [role="menuitemradio"], [role="menuitem"], button, a, [tabindex]') || node;
+            const nodes = [...new Set((roots.length
               ? roots.flatMap(root => Array.from(root.querySelectorAll(selector)))
-              : Array.from(document.querySelectorAll('[role="option"], [data-option-index]')).filter(visible))]
+              : Array.from(document.querySelectorAll('[role="option"], [data-option-index]')).filter(visible))
+              .map(clickableNode))]
               .filter(node => visible(node) && node.getAttribute('aria-disabled') !== 'true' && !node.disabled);
             const target = normalize(requested);
             const details = nodes.map(node => ({
@@ -294,7 +302,7 @@ export async function executeAction(page, action, profile) {
                 for (let pass = 0; pass < 60; pass++) {
                   root.scrollTop = position;
                   await new Promise(resolve => setTimeout(resolve, 25));
-                  const mounted = Array.from(root.querySelectorAll(selector))
+                  const mounted = [...new Set(Array.from(root.querySelectorAll(selector)).map(clickableNode))]
                     .filter(node => visible(node) && node.getAttribute('aria-disabled') !== 'true' && !node.disabled)
                     .map(node => ({
                       node,
@@ -364,6 +372,7 @@ export async function executeAction(page, action, profile) {
             if (verifiedValue) {
               console.log(`    → selected "${result.text}" (now "${verifiedValue}") ✓`);
             } else {
+              await page.keyboard.press('Escape').catch(() => {});
               console.log(`    ⚠ Widget rejected "${result.text}"; selection was not committed`);
             }
           } else {

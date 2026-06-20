@@ -186,6 +186,7 @@ Positioning: ${research.positioningStatement?.slice(0, 200)}
     const compact = { label: f.label, type: f.type, selector: f.selector };
     if (f.required) compact.required = true;
     if (f.placeholder) compact.ph = f.placeholder;
+    if (f.question) compact.question = f.question;
     if (f.type === 'select' && f.options?.length) {
       // No cap — AI must see ALL options to pick the right one (state dropdown = 50 options)
       compact.options = f.options.filter(o => !o.isPlaceholder).map(o => o.text);
@@ -247,6 +248,8 @@ ACTION TYPES:
 FIELD RULES:
 - NEVER use "fill" on checkbox/radio — always "check".
 - NEVER use label text as a selector — always use the selector field from FIELDS[].
+- For every unanswered required radio group, read its question and choose exactly one option using that option's selector.
+- A radio label such as Yes/No is only the option; use its question field to decide the truthful answer.
 - For select with options[]: value must be the EXACT option text shown. If the target value is not listed, pick the closest match.
 - For a searchable select with no options[]: use the exact profile value; the executor will type it to load matching options.
 - Skip fields that already have a currentValue (unless radio/checkbox).
