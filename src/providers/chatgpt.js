@@ -57,53 +57,12 @@ export async function sendMessage(page, text) {
   const textarea = await page.$('#prompt-textarea');
   try {
     await textarea.click();
-
-    if (text.length > 2000) {
-      await page.evaluate((promptText) => {
-        const el = document.querySelector('#prompt-textarea');
-        if (!el) throw new Error('prompt-textarea not found');
-
-        const p = document.createElement('p');
-        p.textContent = promptText;
-        el.innerHTML = '';
-        el.appendChild(p);
-
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      }, text);
-
-      await new Promise(r => setTimeout(r, 300));
-
-      const sendBtn = await page.$('button[data-testid="send-button"]');
-      const sendVisible = sendBtn ? await page.evaluate(el => {
-        const style = window.getComputedStyle(el);
-        return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetWidth > 0;
-      }, sendBtn).catch(() => false) : false;
-
-      if (!sendVisible) {
-        await textarea.click();
-        await page.evaluate(() => {
-          const el = document.querySelector('#prompt-textarea');
-          if (el) {
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            const sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-          }
-        });
-        await page.keyboard.press('Delete');
-        await page.keyboard.type(text);
-        await new Promise(r => setTimeout(r, 300));
-      }
-    } else {
-      // In Puppeteer, type works by focusing and entering text
-      // Clear first
-      await page.evaluate(() => {
-        const el = document.querySelector('#prompt-textarea');
-        if (el) el.innerHTML = '';
-      });
-      await page.keyboard.type(text);
-    }
+    // Select-all + execCommand insertText — atomic, React-compatible, no char-by-char risks
+    await page.keyboard.down('Control');
+    await page.keyboard.press('a');
+    await page.keyboard.up('Control');
+    await page.evaluate((t) => document.execCommand('insertText', false, t), text);
+    await new Promise(r => setTimeout(r, 500));
   } catch (e) {
     throw new Error(`Failed to type prompt into ChatGPT. Error: ${e.message}`);
   }

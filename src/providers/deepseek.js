@@ -16,23 +16,10 @@ export async function sendMessage(page, text) {
   if (!input) throw new Error('DeepSeek input area not found');
 
   await input.click();
-  
-  // Set value directly via React-compatible native prototype value setter
-  await page.evaluate((val) => {
-    const el = document.querySelector('textarea#chat-input, textarea');
-    if (el) {
-      const prototype = Object.getPrototypeOf(el);
-      const valueSetter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
-      if (valueSetter) {
-        valueSetter.call(el, val);
-      } else {
-        el.value = val;
-      }
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  }, text);
-
+  await page.keyboard.down('Control');
+  await page.keyboard.press('a');
+  await page.keyboard.up('Control');
+  await page.evaluate((t) => document.execCommand('insertText', false, t), text);
   await new Promise(r => setTimeout(r, 500));
   
   // Find the submit/send button next to the input area

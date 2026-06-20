@@ -16,20 +16,12 @@ export async function sendMessage(page, text) {
   if (!editor) throw new Error('Grok editor area not found');
 
   await editor.click();
-
-  // Clear and set ProseMirror content directly using DOM paragraph elements
-  await page.evaluate((el, val) => {
-    el.innerHTML = '';
-    const paragraphs = val.split('\n');
-    for (const pText of paragraphs) {
-      const p = document.createElement('p');
-      p.textContent = pText;
-      el.appendChild(p);
-    }
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  }, editor, text);
-
-  await new Promise(r => setTimeout(r, 400));
+  // execCommand insertText updates ProseMirror's internal state correctly (innerHTML doesn't)
+  await page.keyboard.down('Control');
+  await page.keyboard.press('a');
+  await page.keyboard.up('Control');
+  await page.evaluate((t) => document.execCommand('insertText', false, t), text);
+  await new Promise(r => setTimeout(r, 500));
 
   // Try to find the send/submit button or press Enter
   const sendBtn = await page.evaluateHandle(() => {

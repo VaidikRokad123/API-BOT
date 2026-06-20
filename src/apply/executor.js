@@ -193,11 +193,32 @@ export async function executeAction(page, action, profile) {
         }
 
         if (!el) { console.log('    ⚠ Not found'); break; }
-        
+
         await page.evaluate(e => e.scrollIntoView({ block: 'center', inline: 'nearest' }), el);
+
+        // If element text suggests a file upload, intercept the native file chooser
+        const _pdf = profile.resumePdfPath;
+        const _looksUpload = _pdf && fs.existsSync(_pdf) && await page.evaluate(e => {
+          const txt = ((e.innerText || '') + ' ' + (e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('title') || '')).toLowerCase();
+          return /upload|attach|browse|choose file|select file|add resume|add cv/i.test(txt);
+        }, el).catch(() => false);
+
+        // Must register BEFORE the click that opens the dialog
+        const _chooserP = _looksUpload
+          ? page.waitForFileChooser({ timeout: 5000 }).catch(() => null)
+          : Promise.resolve(null);
+
         await el.click();
-        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 5000 }).catch(() => {});
-        await new Promise(r => setTimeout(r, 1200));
+
+        const _chooser = await _chooserP;
+        if (_chooser) {
+          await _chooser.accept([_pdf]);
+          console.log(`    → File chooser auto-accepted: ${path.basename(_pdf)}`);
+          await new Promise(r => setTimeout(r, 1200));
+        } else {
+          await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 5000 }).catch(() => {});
+          await new Promise(r => setTimeout(r, 1200));
+        }
         break;
       }
 
@@ -227,17 +248,62 @@ export async function executeAction(page, action, profile) {
       }
 
       case 'upload': {
-        let el = await page.$(action.selector);
-        if (!el) el = await page.$('input[type="file"]');
-        if (!el) { console.log('    ⚠ No file input'); break; }
         const pdfPath = profile.resumePdfPath;
         if (!pdfPath || !fs.existsSync(pdfPath)) {
           console.log(`    ⚠ Resume PDF not found: ${pdfPath}`);
           console.log('    → Set "resumePdfPath" in data/profile.json');
           break;
         }
-        await el.uploadFile(pdfPath);
-        console.log(`    → Uploaded: ${path.basename(pdfPath)}`);
+
+        // 1. Direct <input type="file"> — fastest path
+        let fileInput = await page.$(action.selector).catch(() => null);
+        const isDirectFile = fileInput && await page.evaluate(
+          e => e.tagName === 'INPUT' && (e.getAttribute('type') || '').toLowerCase() === 'file',
+          fileInput
+        ).catch(() => false);
+
+        if (!isDirectFile) {
+          // Try any file input on the page (may be hidden behind a styled button)
+          fileInput = await page.$('input[type="file"]').catch(() => null);
+        }
+
+        if (fileInput) {
+          await fileInput.uploadFile(pdfPath);
+          console.log(`    → Uploaded: ${path.basename(pdfPath)}`);
+          break;
+        }
+
+        // 2. No <input type="file"> visible — button opens native file dialog
+        // Must register listener BEFORE the click that opens the dialog
+        console.log('    → No file input found — intercepting native file chooser...');
+        const chooserPromise = page.waitForFileChooser({ timeout: 8000 }).catch(() => null);
+
+        const trigger = await page.$(action.selector).catch(() => null);
+        if (trigger) {
+          await trigger.click().catch(() => {});
+        } else {
+          // Last resort: find any upload-labelled button
+          const coords = await page.evaluate(() => {
+            const els = Array.from(document.querySelectorAll('button, [role="button"], label, a'));
+            const match = els.find(e => {
+              const txt = (e.innerText || e.getAttribute('aria-label') || '').toLowerCase();
+              const rect = e.getBoundingClientRect();
+              return /upload|attach|browse|choose file|select file|add resume|add cv/i.test(txt) && rect.width > 0;
+            });
+            if (!match) return null;
+            const r = match.getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          }).catch(() => null);
+          if (coords) await page.mouse.click(coords.x, coords.y);
+        }
+
+        const chooser = await chooserPromise;
+        if (chooser) {
+          await chooser.accept([pdfPath]);
+          console.log(`    → File chooser accepted: ${path.basename(pdfPath)}`);
+        } else {
+          console.log('    ⚠ File chooser did not open — may need manual upload');
+        }
         break;
       }
 

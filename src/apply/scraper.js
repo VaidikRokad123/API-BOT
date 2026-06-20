@@ -44,11 +44,11 @@ export async function scrapePageState(page) {
       // Skip invisible elements
       const rect = el.getBoundingClientRect();
       const style = window.getComputedStyle(el);
-      const isChoice = rawType === 'radio' || rawType === 'checkbox';
+      // radio/checkbox/file inputs are often visually hidden (opacity:0, 1px) behind CSS overlays
+      const isChoice = rawType === 'radio' || rawType === 'checkbox' || rawType === 'file';
 
       if (isChoice) {
-        // Custom-styled radio/checkbox often use opacity:0 or 1px size to hide the native input
-        // while showing a CSS overlay. Only skip if explicitly hidden — never skip by size/opacity.
+        // Only skip if explicitly hidden — never filter by size or opacity for these types
         if (style.display === 'none' || style.visibility === 'hidden' ||
             el.getAttribute('aria-hidden') === 'true' ||
             el.closest('[aria-hidden="true"]')) {
