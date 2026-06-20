@@ -14,7 +14,7 @@ function loggedInProviders() {
 // so several providers can run concurrently. Returns a `send` closure bound to its page.
 async function openProvider(key, visible) {
   const provider = getProvider(key);
-  const browser  = await launchBrowser(visible);
+  const browser  = await launchBrowser(visible, key);
   const ctx      = await newStealthContext(browser, sessionFile(key));
   const page     = await ctx.newPage();
 

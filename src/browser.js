@@ -47,7 +47,7 @@ const USER_AGENTS = {
 
 // ─── Launch & context ──────────────────────────────────────────────────────
 
-export async function launchBrowser(visible = false) {
+export async function launchBrowser(visible = false, profileSuffix = '') {
   const pref = readBrowserPref();
 
   const launchOpts = {
@@ -63,7 +63,8 @@ export async function launchBrowser(visible = false) {
 
   if (pref === 'chrome') {
     launchOpts.channel = 'chrome';
-    const profileDir = path.join(__dirname, '..', 'session', 'chrome-profile');
+    const suffix = profileSuffix ? `-${profileSuffix}` : '';
+    const profileDir = path.join(__dirname, '..', 'session', `chrome-profile${suffix}`);
     if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true });
     launchOpts.userDataDir = profileDir;
     launchOpts.args.push('--window-size=1280,900');
@@ -79,12 +80,6 @@ export async function launchBrowser(visible = false) {
 export async function newStealthContext(browser, storageStatePath = null) {
   const ctx = browser.defaultBrowserContext();
   const originalNewPage = ctx.newPage ? ctx.newPage.bind(ctx) : browser.newPage.bind(browser);
-  const target = ctx.newPage ? ctx : browser;
-
-  target.newPage = async () => {
-    const page = await originalMethod();
-    return page;
-  };
 
   // We define target wrapper so it has a newPage method
   const wrapper = {
@@ -125,5 +120,12 @@ export async function newStealthContext(browser, storageStatePath = null) {
     }
   };
 
-  return wrapper;
+  const target = ctx.newPage ? ctx : browser;
+  return new Proxy(wrapper, {
+    get(targetObj, prop) {
+      if (prop in targetObj) return targetObj[prop];
+      const val = target[prop];
+      return typeof val === 'function' ? val.bind(target) : val;
+    }
+  });
 }

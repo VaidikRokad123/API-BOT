@@ -38,7 +38,7 @@ export async function apply(jobUrl, visible = true) {
 
   const { browser: aiBrowser, page: aiPage } = await openAiSession(false);
 
-  const appBrowser = await launchBrowser(visible);
+  const appBrowser = await launchBrowser(visible, 'apply');
   const appCtx     = await newStealthContext(appBrowser);
   const appPage    = await appCtx.newPage();
 

@@ -61,7 +61,7 @@ export async function login(externalRl = null, providerKey = null) {
       page = pages[0] || await browser.newPage();
     } catch (e) {
       console.log('  No manual Chrome on port 9222. Launching new browser...');
-      browser = await launchBrowser(true);
+      browser = await launchBrowser(true, providerKey);
       page = await browser.newPage();
     }
 

@@ -27,7 +27,7 @@ export async function openAiSession(visible = false) {
     throw new Error(`No session for ${provider.config.name}. Type /login first.`);
   }
 
-  const browser = await launchBrowser(visible);
+  const browser = await launchBrowser(visible, _providerKey);
   const ctx     = await newStealthContext(browser, sFile);
   const page    = await ctx.newPage();
 
