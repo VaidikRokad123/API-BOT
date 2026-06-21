@@ -200,15 +200,102 @@ export async function executeAction(page, action, profile) {
         }
 
         const currentVal = await page.evaluate(e => e.value, el).catch(() => '');
-        if (currentVal && String(currentVal).trim().toLowerCase() === String(fillValue).trim().toLowerCase()) {
+        
+        const isPhone = elType === 'tel' || 
+          /(phone|mobile|tel|contact|telephone)/i.test(action.selector + ' ' + (action.description || '') + ' ' + (action.value || ''));
+        const normalizePhone = val => String(val || '').replace(/\D/g, '');
+
+        if (isPhone) {
+          const normCurrent = normalizePhone(currentVal);
+          const normFill = normalizePhone(fillValue);
+          if (normCurrent && normFill && (normCurrent === normFill || normCurrent.endsWith(normFill) || normFill.endsWith(normCurrent))) {
+            console.log(`    → already filled with correct phone value "${currentVal}" ✓`);
+            break;
+          }
+        } else if (currentVal && String(currentVal).trim().toLowerCase() === String(fillValue).trim().toLowerCase()) {
           console.log(`    → already filled with correct value "${fillValue}" ✓`);
           break;
         }
 
-        await el.click().catch(() => {});
-        await page.evaluate(e => { e.value = ''; }, el);
-        await el.type(String(fillValue || ''));
-        console.log(`    → "${String(fillValue || '').slice(0, 80)}"`);
+        // Check if this input is part of a number counter (+ / - buttons)
+        const isCounter = await page.evaluate(e => {
+          const parent = e.parentElement;
+          if (!parent) return false;
+          const buttons = Array.from(parent.querySelectorAll('button'));
+          const hasMinus = buttons.some(b => /[-−—]/i.test(b.innerText || b.textContent || '') || b.getAttribute('aria-label')?.includes('decrease') || b.getAttribute('aria-label')?.includes('decrement'));
+          const hasPlus = buttons.some(b => /[+]/i.test(b.innerText || b.textContent || '') || b.getAttribute('aria-label')?.includes('increase') || b.getAttribute('aria-label')?.includes('increment'));
+          return hasMinus && hasPlus;
+        }, el).catch(() => false);
+
+        if (isCounter && !isNaN(parseInt(fillValue))) {
+          const target = parseInt(fillValue);
+          
+          // 1. Try native React state updater bypass first
+          await page.evaluate((input, val) => {
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+            if (nativeSetter) {
+              nativeSetter.call(input, val);
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+            } else {
+              input.value = val;
+            }
+          }, el, String(fillValue || '')).catch(() => {});
+          
+          await new Promise(r => setTimeout(r, 150));
+          let currentValue = parseInt(await page.evaluate(e => e.value, el)) || 0;
+          console.log(`    → Detected counter widget. Native set value: ${currentValue}, Target: ${target}`);
+          
+          // 2. Fallback to increment/decrement buttons if native setter is ignored
+          if (currentValue !== target) {
+            let attempts = 0;
+            const maxAttempts = 100; // safety ceiling
+            
+            while (currentValue !== target && attempts < maxAttempts) {
+              attempts++;
+              const diff = target - currentValue;
+              const clickType = diff > 0 ? 'plus' : 'minus';
+              
+              const buttonHandle = await page.evaluateHandle((e, type) => {
+                const parent = e.parentElement;
+                const buttons = Array.from(parent.querySelectorAll('button'));
+                if (type === 'plus') {
+                  return buttons.find(b => /[+]/i.test(b.innerText || b.textContent || '') || b.getAttribute('aria-label')?.includes('increase') || b.getAttribute('aria-label')?.includes('increment'));
+                } else {
+                  return buttons.find(b => /[-−—]/i.test(b.innerText || b.textContent || '') || b.getAttribute('aria-label')?.includes('decrease') || b.getAttribute('aria-label')?.includes('decrement'));
+                }
+              }, el, clickType).catch(() => null);
+              
+              const btn = buttonHandle ? buttonHandle.asElement() : null;
+              if (btn) {
+                await btn.click().catch(() => {});
+                await new Promise(r => setTimeout(r, 150)); // small delay for UI transition
+                const nextValue = parseInt(await page.evaluate(e => e.value, el)) || 0;
+                if (nextValue === currentValue) {
+                  console.log(`    ⚠ Value stuck at ${currentValue} after clicking ${clickType}`);
+                  break;
+                }
+                currentValue = nextValue;
+              } else {
+                console.log(`    ⚠ Counter button for ${clickType} not found`);
+                break;
+              }
+            }
+          }
+          console.log(`    → Counter set to ${currentValue}`);
+        } else {
+          await el.click().catch(() => {});
+          // Select all text and backspace using keyboard to notify modern UI frameworks (React/Vue/etc.)
+          await page.keyboard.down('Control').catch(() => {});
+          await page.keyboard.press('A').catch(() => {});
+          await page.keyboard.up('Control').catch(() => {});
+          await page.keyboard.press('Backspace').catch(() => {});
+          // Fallback clear in DOM (handles non-focused elements)
+          await page.evaluate(e => { e.value = ''; }, el).catch(() => {});
+
+          await el.type(String(fillValue || ''));
+          console.log(`    → "${String(fillValue || '').slice(0, 80)}"`);
+        }
         break;
       }
 
@@ -345,6 +432,14 @@ export async function executeAction(page, action, profile) {
                   return text.startsWith(`${target} `) || target.startsWith(`${text} `);
                 });
                 if (boundary.length === 1) chosen = boundary[0];
+              }
+              if (!chosen) {
+                const containing = items.filter(item => {
+                  const text = normalize(item.text);
+                  const val = normalize(item.value);
+                  return text.includes(target) || val.includes(target) || (target.length >= 2 && (target.includes(text) || target.includes(val)));
+                });
+                if (containing.length === 1) chosen = containing[0];
               }
               return chosen;
             };

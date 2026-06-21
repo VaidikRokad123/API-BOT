@@ -100,9 +100,107 @@ export function sanitizeGptJson(raw) {
   return JSON.parse(result);
 }
 
+export function parsePhoneNumber(profile) {
+  let phone = String(profile.phone || '').trim();
+  let countryCode = profile.phoneCountryCode;
+  let digits = profile.phoneNumberDigits;
+
+  if (!phone) {
+    return {
+      phoneCountryCode: countryCode || 'United States',
+      phoneNumberDigits: digits || '',
+      phone: ''
+    };
+  }
+
+  const allDigits = phone.replace(/\D/g, '');
+
+  if (!countryCode || !digits) {
+    if (phone.startsWith('+')) {
+      const codes = [
+        { code: '91', country: 'India' },
+        { code: '1', country: 'United States' },
+        { code: '44', country: 'United Kingdom' },
+        { code: '61', country: 'Australia' },
+        { code: '49', country: 'Germany' },
+        { code: '33', country: 'France' },
+        { code: '81', country: 'Japan' },
+        { code: '86', country: 'China' },
+        { code: '7', country: 'Russia' },
+        { code: '55', country: 'Brazil' },
+        { code: '34', country: 'Spain' },
+        { code: '39', country: 'Italy' },
+        { code: '92', country: 'Pakistan' },
+        { code: '880', country: 'Bangladesh' },
+        { code: '62', country: 'Indonesia' },
+        { code: '65', country: 'Singapore' },
+      ];
+      let matched = null;
+      // Match longer codes first
+      const sortedCodes = [...codes].sort((a, b) => b.code.length - a.code.length);
+      for (const item of sortedCodes) {
+        if (allDigits.startsWith(item.code)) {
+          matched = item;
+          break;
+        }
+      }
+
+      if (matched) {
+        countryCode = countryCode || matched.country;
+        digits = digits || allDigits.slice(matched.code.length);
+      } else {
+        countryCode = countryCode || 'United States';
+        digits = digits || allDigits;
+      }
+    } else {
+      if (allDigits.length === 10) {
+        countryCode = countryCode || 'United States';
+        digits = digits || allDigits;
+      } else if (allDigits.length === 11 && allDigits.startsWith('1')) {
+        countryCode = countryCode || 'United States';
+        digits = digits || allDigits.slice(1);
+      } else if (allDigits.length === 12 && allDigits.startsWith('91')) {
+        countryCode = countryCode || 'India';
+        digits = digits || allDigits.slice(2);
+      } else {
+        countryCode = countryCode || 'United States';
+        digits = digits || allDigits;
+      }
+    }
+  }
+
+  return {
+    phoneCountryCode: countryCode,
+    phoneNumberDigits: digits,
+    phone: phone
+  };
+}
+
+function isPhoneField(f) {
+  if (f.type === 'tel') return true;
+  const label = (f.label || '').toLowerCase();
+  const hint = (f.hint || '').toLowerCase();
+  const placeholder = (f.placeholder || '').toLowerCase();
+  const selector = (f.selector || '').toLowerCase();
+  const searchTerms = ['phone', 'mobile', 'tel', 'contact number', 'telephone', 'facsimile'];
+  return searchTerms.some(term => 
+    label.includes(term) || 
+    hint.includes(term) || 
+    placeholder.includes(term) || 
+    selector.includes(term)
+  );
+}
+
+function isPhonePrefixOnly(val) {
+  const clean = String(val || '').trim();
+  return /^\+\d{1,4}[-\s]*$/.test(clean) || clean === '+';
+}
+
 export function buildAgentPrompt(profile, pageState, step, research = null) {
   const [firstName, ...rest] = (profile.name || '').split(' ');
   const lastName = rest.join(' ');
+
+  const parsedPhone = parsePhoneNumber(profile);
 
   const compactProfile = {
     // Identity
@@ -110,9 +208,9 @@ export function buildAgentPrompt(profile, pageState, step, research = null) {
     firstName,
     lastName,
     email: profile.email,
-    phone: profile.phone,
-    phoneCountryCode: profile.phoneCountryCode || 'United States',
-    phoneNumberDigits: profile.phoneNumberDigits || (profile.phone || '').replace(/\D/g, '').replace(/^1/, ''),
+    phone: parsedPhone.phone,
+    phoneCountryCode: parsedPhone.phoneCountryCode,
+    phoneNumberDigits: parsedPhone.phoneNumberDigits,
     legalNameSameAsPreferred: profile.legalNameSameAsPreferred || 'Yes',
     // Location
     address: profile.address,
@@ -181,7 +279,13 @@ Positioning: ${research.positioningStatement?.slice(0, 200)}
     if (f.type === 'checkbox') return !f.checked;
     // For select/dropdown: also treat placeholder-like values as empty
     if (f.type === 'select') return isPlaceholderLike(f.currentValue);
-    if (String(f.currentValue || '').trim()) return false;
+    if (String(f.currentValue || '').trim()) {
+      if (isPhoneField(f) && isPhonePrefixOnly(f.currentValue)) {
+        // Keep phone inputs that only have a country prefix (like "+91")
+      } else {
+        return false;
+      }
+    }
     return true;
   }).sort((a, b) => {
     const priority = field => field.required ? 0
@@ -199,6 +303,9 @@ Positioning: ${research.positioningStatement?.slice(0, 200)}
     if (f.placeholder) compact.ph = f.placeholder;
     if (f.hint) compact.hint = f.hint;
     if (f.question) compact.question = f.question;
+    if (f.currentValue && String(f.currentValue).trim()) {
+      compact.value = f.currentValue;
+    }
     if (f.type === 'select' && f.options?.length) {
       // No cap — AI must see ALL options to pick the right one (state dropdown = 50 options)
       compact.options = f.options.filter(o => !o.isPlaceholder).map(o => o.text);
@@ -208,6 +315,7 @@ Positioning: ${research.positioningStatement?.slice(0, 200)}
     if (f.groupName) compact.group = f.groupName;
     return compact;
   });
+
 
   // Compress checkbox groups to just list of values
   const compactGroups = {};
@@ -269,8 +377,7 @@ FIELD RULES:
 - For every unanswered required radio group, read its question and choose exactly one option using that option's selector.
 - A radio label such as Yes/No is only the option; use its question field to decide the truthful answer.
 - For select with options[]: value must be the EXACT option text shown. If the target value is not listed, pick the closest match.
-- For a searchable select with no options[]: use the exact profile value; the executor will type it to load matching options.
-- Skip fields that already have a currentValue (unless radio/checkbox).
+- Skip fields that already have a currentValue (unless radio/checkbox, or phone fields containing only country prefixes like "+91" or "+1").
 - Fill ALL empty required fields before clicking Submit/Next.
 - upload when any file-type field is present. signature when canvas present.
 - Click Submit/Next/Continue LAST after filling all fields on the current section.
@@ -281,8 +388,9 @@ PROFILE FIELD MAPPING (use these answers for corresponding form questions):
 - "Preferred Last Name" / "Last Name" → lastName
 - "Is your legal name the same" → legalNameSameAsPreferred ("Yes")
 - "Email" → email
-- "Phone number" (digits only, no country code) → phoneNumberDigits
-- "Phone country code" / "Country code" dropdown → phoneCountryCode ("United States")
+- "Phone number" (digits only, no country code) → phoneNumberDigits (if there is a separate Country Code dropdown); OR use full phone number with country code (e.g. +15551234567 or +911234567890) if it is a single standalone phone field.
+- "Phone country code" / "Country code" dropdown → phoneCountryCode ("United States" or candidate's country name)
+
 - "Address" / "Address Line 1" → address
 - "City" → city
 - "State" / "Province" → state (select from dropdown options[])

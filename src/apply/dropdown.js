@@ -58,5 +58,13 @@ export function findBestDropdownOption(options, requestedValue) {
   });
   if (boundaryMatches.length === 1) return boundaryMatches[0];
 
+  const uniqueContainment = allowed.filter(option => {
+    const text = normalizeDropdownText(option.text);
+    const val = normalizeDropdownText(option.value);
+    return text.includes(target) || val.includes(target) || (target.length >= 2 && (target.includes(text) || target.includes(val)));
+  });
+  if (uniqueContainment.length === 1) return uniqueContainment[0];
+
   return null;
 }
+
