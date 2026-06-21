@@ -162,6 +162,15 @@ Positioning: ${research.positioningStatement?.slice(0, 200)}
 ` : '';
 
   // Compress fields: only include fields that NEED action
+  const isPlaceholderLike = (val) => {
+    const v = String(val || '').trim()
+      .replace(/^\d+\s+match(?:es)?\s+found\.?\s*/i, '')
+      .replace(/^\d+\s+result(?:s)?\s*\.?\s*/i, '')
+      .replace(/^no\s+results?\.?\s*/i, '')
+      .trim();
+    return !v || /^(?:[-–—]+\s*)?(?:select|choose|pick|search|please\s+(?:select|choose)|none\s*selected|select\s+an?\s+option|select\s+one|type\s+to\s+search)(?:\s*\.{3}|…)?$/i.test(v);
+  };
+
   const actionableFields = pageState.fields.filter(f => {
     if (f.disabled) return false;
     if (f.type === 'radio') {
@@ -170,6 +179,8 @@ Positioning: ${research.positioningStatement?.slice(0, 200)}
       return !f.checked;
     }
     if (f.type === 'checkbox') return !f.checked;
+    // For select/dropdown: also treat placeholder-like values as empty
+    if (f.type === 'select') return isPlaceholderLike(f.currentValue);
     if (String(f.currentValue || '').trim()) return false;
     return true;
   }).sort((a, b) => {

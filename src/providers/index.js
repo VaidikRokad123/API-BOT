@@ -52,10 +52,17 @@ export async function insertPrompt(page, selector, text) {
 //   1. (if afterCount set) wait until a NEW response element appears — this is
 //      what prevents reading the PREVIOUS turn's answer on multi-turn chats.
 //   2. poll the newest element until its text stops changing.
+//
+// Deadlock protections:
+//   - Phase 1 has its own timeout (30s). If no new message appears but the
+//     stop button is also gone, we fall through to Phase 2 anyway (the AI may
+//     have responded instantly before the count check).
+//   - Phase 2 caps stop-button resets: after 40 consecutive resets (~16s at
+//     400ms poll) we ignore the stop button and let stability win.
 export async function waitForStable(page, selector, {
   poll         = 400,
   stableFor    = 1200,
-  maxWait      = 120_000,
+  maxWait      = 90_000,
   stopSelector = null,
   afterCount   = null,
 } = {}) {
@@ -63,22 +70,53 @@ export async function waitForStable(page, selector, {
 
   // Phase 1 — ensure the response for THIS message has actually appeared.
   if (afterCount !== null) {
-    while (Date.now() - start < maxWait) {
+    const phase1Deadline = Math.min(start + 30_000, start + maxWait * 0.4);
+    let sawStopButton = false;
+    while (Date.now() < phase1Deadline) {
       const count = (await page.$$(selector)).length;
       if (count > afterCount) break;
+
+      // Check if the AI is still actively generating
+      if (stopSelector) {
+        const stopVisible = (await page.$$(stopSelector)).length > 0;
+        if (stopVisible) {
+          sawStopButton = true;
+        } else if (sawStopButton) {
+          // Stop button appeared then disappeared — AI finished but count
+          // didn't increase (race). Break out and let Phase 2 read whatever
+          // is there.
+          break;
+        }
+      }
       await new Promise(resolve => setTimeout(resolve, poll));
     }
+
+    // If we timed out in Phase 1, check if there IS a response element we
+    // can read (the count might have raced with our initial snapshot).
+    const currentCount = (await page.$$(selector)).length;
+    if (currentCount <= afterCount && currentCount === 0) {
+      throw new Error(`AI did not produce a response (no response elements found after 30s)`);
+    }
+    // Otherwise fall through — Phase 2 will read the last element.
   }
 
   // Phase 2 — wait for the newest element's text to settle.
   let lastText = '', stableMs = 0;
+  let stopButtonResets = 0;
+  const maxStopResets = 40; // ~16s at 400ms poll — after this, ignore stop button
+
   while (Date.now() - start < maxWait) {
     await new Promise(resolve => setTimeout(resolve, poll));
 
-    if (stopSelector) {
+    if (stopSelector && stopButtonResets < maxStopResets) {
       const stopCount = (await page.$$(stopSelector)).length;
       if (stopCount > 0) {
-        stableMs = 0; continue;
+        stableMs = 0;
+        stopButtonResets++;
+        if (stopButtonResets >= maxStopResets) {
+          console.log('  ⚠ AI stop button stuck — ignoring it to prevent deadlock');
+        }
+        continue;
       }
     }
 
@@ -95,6 +133,12 @@ export async function waitForStable(page, selector, {
       lastText = text;
       stableMs = 0;
     }
+  }
+
+  // Last-resort: if we have ANY text, return it instead of crashing
+  if (lastText?.trim()) {
+    console.log('  ⚠ AI response timed out but returning partial text');
+    return lastText.trim();
   }
   throw new Error(`Timed out waiting for AI response (selector: ${selector})`);
 }

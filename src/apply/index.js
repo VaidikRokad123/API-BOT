@@ -106,6 +106,8 @@ Return ONLY the JSON, nothing else.`;
       console.log('  ⚡ Skipping job/company research as requested.');
     }
 
+    let emptyActionStreak = 0; // Track consecutive steps with 0 actions
+
     for (let step = 1; step <= 20; step++) {
       console.log(`\n${'═'.repeat(52)}`);
       console.log(`  STEP ${step}  —  ${new Date().toLocaleTimeString()}`);
@@ -130,7 +132,29 @@ Return ONLY the JSON, nothing else.`;
       }
 
       console.log('  🤖 Asking AI...');
-      const raw = await sendMessage(aiPage, buildAgentPrompt(profile, pageState, step, research));
+
+      // Wrap AI call with a hard timeout to prevent deadlocks where the AI
+      // page goes idle or the stop-button check loops indefinitely.
+      const aiTimeout = (promise, ms = 100_000) =>
+        Promise.race([promise, new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('AI_TIMEOUT')), ms)
+        )]);
+
+      let raw;
+      try {
+        raw = await aiTimeout(sendMessage(aiPage, buildAgentPrompt(profile, pageState, step, research)));
+      } catch (e) {
+        if (e.message === 'AI_TIMEOUT') {
+          console.log('  ⚠ AI did not respond in time — retrying this step...');
+          // Try clicking stop button to reset AI state
+          const stopBtn = await aiPage.$('button[data-testid="stop-button"]').catch(() => null);
+          if (stopBtn) await stopBtn.click().catch(() => {});
+          await new Promise(r => setTimeout(r, 2000));
+          step--; // retry this step
+          continue;
+        }
+        throw e;
+      }
 
       let agentResp = null;
       let src = raw;
@@ -140,7 +164,15 @@ Return ONLY the JSON, nothing else.`;
         } catch (e) {
           if (attempt === 1) {
             console.log('  ⚠ JSON parse error — asking AI to retry...');
-            src = await sendMessage(aiPage, 'Your last response had invalid JSON. Re-send ONLY the raw JSON object, no markdown, no explanation.');
+            try {
+              src = await aiTimeout(sendMessage(aiPage, 'Your last response had invalid JSON. Re-send ONLY the raw JSON object, no markdown, no explanation.'), 60_000);
+            } catch (retryErr) {
+              if (retryErr.message === 'AI_TIMEOUT') {
+                console.log('  ⚠ AI retry also timed out — skipping to next step');
+                break;
+              }
+              throw retryErr;
+            }
           } else {
             console.log(`  ✗ Parse failed: ${e.message}`);
           }
@@ -152,10 +184,27 @@ Return ONLY the JSON, nothing else.`;
       console.log(`\n  💭 ${agentResp.reasoning}`);
       console.log(`  📋 ${agentResp.actions?.length || 0} action(s) | Status: ${agentResp.status}`);
 
-      if (agentResp.status === 'done' && !agentResp.actions?.length) {
-        const submit = pageState.buttons.find(button =>
-          !button.disabled && /^(?:submit|submit\s+application|submit\s+my\s+application|apply|complete|finish|complete\s+application|send|confirm)$/i.test(String(button.text || '').trim().replace(/\s+/g, ' '))
+      // ─── Find submit button helper (reused below) ─────────────────────
+      const findSubmitButton = (btns) => {
+        // 1. Exact text match (Submit application, Apply, etc.)
+        let submit = btns.find(b =>
+          !b.disabled && /^(?:submit|submit\s+application|submit\s+my\s+application|apply\s*(?:now)?|complete|finish|complete\s+application|send\s+application|send|confirm|done|finalize)$/i.test(String(b.text || '').trim().replace(/\s+/g, ' '))
         );
+        if (submit) return submit;
+        // 2. Partial text match (contains "submit" or "apply")
+        submit = btns.find(b =>
+          !b.disabled && /\b(?:submit|finalize|complete\s+application)\b/i.test(String(b.text || '').trim())
+        );
+        if (submit) return submit;
+        // 3. data-test-id based (e.g. Microsoft's submitApplicationButton)
+        submit = btns.find(b =>
+          !b.disabled && /submit/i.test(b.selector)
+        );
+        return submit || null;
+      };
+
+      if (agentResp.status === 'done' && !agentResp.actions?.length) {
+        const submit = findSubmitButton(pageState.buttons);
         console.log('  ⚠ AI reported done, but the website has not confirmed submission.');
         agentResp.status = 'continue';
         if (submit) {
@@ -181,6 +230,7 @@ Return ONLY the JSON, nothing else.`;
       }
 
       if (agentResp.actions?.length) {
+        emptyActionStreak = 0; // Reset streak
         console.log('\n  Executing:');
         for (const action of agentResp.actions) await executeAction(activePage, action, profile);
         // After actions, check if a login popup opened (e.g. after clicking "Sign in with Google")
@@ -188,6 +238,58 @@ Return ONLY the JSON, nothing else.`;
         if (postPopup) {
           console.log('  ⏳ Post-action login handled — waiting for auth state to settle (no refresh)...');
           await new Promise(r => setTimeout(r, 4000));
+        }
+      } else {
+        emptyActionStreak++;
+        console.log(`  ⚠ AI returned 0 actions (streak: ${emptyActionStreak})`);
+
+        if (emptyActionStreak >= 2) {
+          // Scroll down to reveal content that may be below the fold
+          console.log('  🔄 Stall detected — scrolling page down to reveal hidden content...');
+          await activePage.evaluate(() => window.scrollBy(0, window.innerHeight * 0.8));
+          await new Promise(r => setTimeout(r, 1500));
+
+          // Force-find and click submit button
+          const freshState = await scrapePageState(activePage);
+          const submit = findSubmitButton(freshState.buttons);
+          if (submit) {
+            console.log(`  → Found submit button after scroll: "${submit.text}"`);
+            await executeAction(activePage, { type: 'click', selector: submit.selector, description: submit.text }, profile);
+            emptyActionStreak = 0;
+          } else {
+            // Also try finding by data-test-id directly
+            const directSubmit = await activePage.evaluate(() => {
+              const candidates = [
+                '[data-test-id*="submit" i]', '[data-testid*="submit" i]',
+                '[data-automation-id*="submit" i]', 'button[type="submit"]',
+              ];
+              for (const sel of candidates) {
+                const el = document.querySelector(sel);
+                if (el) {
+                  const style = getComputedStyle(el);
+                  const rect = el.getBoundingClientRect();
+                  if (style.display !== 'none' && rect.width > 0) {
+                    el.scrollIntoView({ block: 'center' });
+                    return { text: el.innerText?.trim() || 'Submit', found: true };
+                  }
+                }
+              }
+              return { found: false };
+            });
+            if (directSubmit.found) {
+              console.log(`  → Found submit via data-test-id: "${directSubmit.text}"`);
+              await activePage.evaluate(() => {
+                const sels = ['[data-test-id*="submit" i]', '[data-testid*="submit" i]',
+                  '[data-automation-id*="submit" i]', 'button[type="submit"]'];
+                for (const sel of sels) {
+                  const el = document.querySelector(sel);
+                  if (el) { el.click(); return; }
+                }
+              });
+              await new Promise(r => setTimeout(r, 2000));
+              emptyActionStreak = 0;
+            }
+          }
         }
       }
 

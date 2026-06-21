@@ -277,9 +277,16 @@ export async function scrapePageState(page) {
       const selectedChild = el.querySelector('[aria-selected="true"], [data-selected="true"]');
       const rawCurrent = el.value || el.getAttribute('aria-valuetext') || activeText ||
         selectedChild?.textContent || el.innerText || '';
-      const cur = /^(?:select|choose|pick|search|please\s+(?:select|choose)|none selected)\b/i.test(rawCurrent.trim())
-        ? ''
-        : rawCurrent.trim().slice(0, 80);
+      // Clean the raw value: strip noise like "N matches found." that ATS platforms
+      // inject as live-region feedback alongside the actual selected value.
+      const cleaned = rawCurrent.trim()
+        .replace(/^\d+\s+match(?:es)?\s+found\.?\s*/i, '')  // "2 matches found. Select" → "Select"
+        .replace(/^\d+\s+result(?:s)?\s*\.?\s*/i, '')         // "3 results. Select" → "Select"
+        .replace(/^no\s+results?\.?\s*/i, '')                 // "No results." → ""
+        .trim();
+      const isPlaceholderValue = !cleaned ||
+        /^(?:[-–—]+\s*)?(?:select|choose|pick|search|please\s+(?:select|choose)|none\s*selected|select\s+an?\s+option|select\s+one|type\s+to\s+search)(?:\s*\.{3}|…)?$/i.test(cleaned);
+      const cur = isPlaceholderValue ? '' : cleaned.slice(0, 80);
 
       fields.push({
         label: label.replace(/\s+/g, ' ').trim().slice(0, 80),
@@ -378,7 +385,8 @@ export async function scrapePageState(page) {
       if (!trigger) continue;
       await page.evaluate(el => el.scrollIntoView({ block: 'center', inline: 'nearest' }), trigger);
       await trigger.click();
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // ATS platforms (Workday, Microsoft) can take 500-1200ms to AJAX-load options
+      await new Promise(resolve => setTimeout(resolve, 800));
 
       const inspected = await page.evaluate(async (el) => {
         const isVisible = node => {
@@ -450,7 +458,46 @@ export async function scrapePageState(page) {
         return { options, currentValue };
       }, trigger);
 
-      if (inspected.options?.length) field.options = inspected.options;
+      if (inspected.options?.length) {
+        field.options = inspected.options;
+      } else {
+        // Retry: some ATS platforms take >800ms to render dropdown options
+        await new Promise(resolve => setTimeout(resolve, 700));
+        const retry = await page.evaluate(async (el) => {
+          const isVisible = node => {
+            if (!node) return false;
+            const style = getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return style.display !== 'none' && style.visibility !== 'hidden' &&
+              style.opacity !== '0' && rect.width > 0 && rect.height > 0;
+          };
+          const clean = text => (text || '').replace(/\s+/g, ' ').trim();
+          const roots = [];
+          const controlledIds = `${el.getAttribute('aria-controls') || ''} ${el.getAttribute('aria-owns') || ''}`
+            .trim().split(/\s+/).filter(Boolean);
+          for (const id of controlledIds) {
+            const root = document.getElementById(id);
+            if (root) roots.push(root);
+          }
+          if (!roots.length) {
+            document.querySelectorAll('[role="listbox"], [role="menu"], [class*="select__menu" i], [data-automation-id*="menu" i]')
+              .forEach(root => { if (isVisible(root)) roots.push(root); });
+          }
+          const optionSelector = '[role="option"], [role="menuitemradio"], [role="menuitem"], li[role="presentation"] > :first-child, option, li:not([role="presentation"]), [data-value], [data-option-index]';
+          const seen = new Set();
+          const options = [];
+          for (const root of [...new Set(roots)]) {
+            for (const option of root.querySelectorAll(optionSelector)) {
+              const text = clean(option.innerText || option.textContent || option.getAttribute('aria-label'));
+              if (!text || text.length > 160 || seen.has(text)) continue;
+              seen.add(text);
+              options.push({ text, value: option.getAttribute('data-value') || option.value || text, isPlaceholder: false });
+            }
+          }
+          return options;
+        }, trigger).catch(() => []);
+        if (retry?.length) field.options = retry;
+      }
       if (inspected.currentValue && !/^(?:select|choose|pick|search|please\s+(?:select|choose)|none selected)\b/i.test(inspected.currentValue)) {
         field.currentValue = inspected.currentValue.slice(0, 80);
       }
