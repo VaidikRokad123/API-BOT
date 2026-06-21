@@ -7,6 +7,7 @@ Automate **ChatGPT, Grok, Gemini, Perplexity, or DeepSeek** from the terminal �
 - **Chat** — interactive terminal chat with memory across messages
 - **Ask** — one-shot question, prints the answer, returns
 - **Apply** — researches the company, then AI fills and submits job application forms automatically, **including handling complex counter/numeric inputs, multi-step OAuth logins (like Google Sign-In), and CAPTCHAs.**
+- **Browser Subagent** — delegate natural language browser automation tasks (e.g. check feed, pull headlines) with full perceive-act-verify execution and HTML/screenshot logs.
 
 Everything runs from a single interactive console (`node agent.js`). The browser is **visible by default** so you can watch it work.
 
@@ -75,6 +76,9 @@ Run `node agent.js` and you get an interactive prompt:
 | `/apply <url> --real` | Use your already-open real Chrome for the job form |
 | `/apply <url> --real=brave` | Use your already-open real Brave browser for the job form |
 | `/apply <url> --real=opera` | Use your already-open real Opera browser for the job form |
+| `/browser` | Choose/switch the default hands browser engine |
+| `/browser <engine>` | Directly switch the default hands browser engine (e.g. `real-chrome`, `real-brave`, `real-opera`, `playwright`) |
+| `/browser <task>` | Run a natural language browser automation task via the Subagent |
 | `/status` | Show the active provider and whether its session is valid |
 | `/help` | List all commands |
 | `/exit` | Quit |
@@ -283,6 +287,80 @@ You can also make one of these the default browser:
 ```
 
 Firefox is not listed here because it does not support this same Chrome DevTools attach flow. Use Chrome, Brave, or Opera for real-browser attach mode.
+
+---
+
+## The Browser Subagent (`/browser`)
+
+The Browser Subagent allows you to delegate generic natural-language tasks directly to the AI-controlled browser. It uses a **perceive-act-verify loop** to navigate pages, click/hover elements, scroll, fill inputs, read/extract text, and evaluate success.
+
+### Syntax
+```text
+> /browser <task> [--hidden] [--engine=<engine>] [--provider=<provider>]
+```
+
+- `--hidden` (Optional): Run the subagent's browser in headless mode.
+- `--engine=<engine>` (Optional): Override the browser engine for this task. Available: `playwright`, `real-chrome`, `real-brave`, `real-opera`.
+- `--provider=<provider>` (Optional): Override the AI provider for this task. Available: `chatgpt`, `grok`, `gemini`, `perplexity`, `deepseek`.
+
+### Examples
+- **Analyze LinkedIn Feed:**
+  ```text
+  > /browser check linkedin in brave and give me top 5 post annalized --engine=real-brave
+  ```
+- **Fetch news headlines:**
+  ```text
+  > /browser check breaking news in timesofindia and report top 5 articles
+  ```
+- **Perform a GitHub search:**
+  ```text
+  > /browser search for "playwright" on github and report the star count
+  ```
+
+---
+
+### Setup for Windows and Mac (Brave/Chrome)
+
+Using the subagent with your **real browser** (like Brave or Chrome) lets you run tasks behind your active login sessions, bypassing CAPTCHAs and complex logins.
+
+To use `--engine=real-chrome` or `--engine=real-brave`, start your browser with remote debugging:
+
+#### 🦁 Brave Browser
+* **Windows (PowerShell):**
+  ```powershell
+  & "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe" --remote-debugging-port=9223
+  ```
+* **macOS (Terminal):**
+  ```bash
+  /Applications/Brave\ Browser.app/Contents/MacOS/Brave\ Browser --remote-debugging-port=9223
+  ```
+
+#### 🌐 Chrome Browser
+* **Windows (PowerShell):**
+  ```powershell
+  & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+  ```
+* **macOS (Terminal):**
+  ```bash
+  /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+  ```
+
+---
+
+### Step Execution and Trace Logs
+
+Each subagent run is tracked inside its own folder in `subagent_runs/` (ignored in Git):
+```text
+subagent_runs/
+  └── run-2026-06-21T15-34-37-447Z-f7c7go/
+        ├── report.md          # Complete markdown summary, step logs, and verdict
+        ├── trace.json         # Full structured JSON trace of the loop
+        ├── console.log        # Combined browser console/network logs
+        └── step-01-step.png   # Step-by-step screenshots
+```
+
+- **`report.md`** contains a final **verdict** (`✅ PASSED` / `❌ FAILED`), listing the detailed reasoning and evidence collected by the verification model.
+- Since runs generate many screenshots and large trace files, all outputs are safely placed in the non-colliding `subagent_runs/` folder.
 
 ---
 

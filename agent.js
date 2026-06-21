@@ -179,25 +179,53 @@ const COMMANDS = {
   },
 
   '/browser': {
-    usage:   '/browser [playwright|real-chrome|real-brave|real-opera]',
-    desc:    'Switch browser engine',
+    usage:   '/browser [engine | <task> [--hidden] [--engine=...] [--provider=...]]',
+    desc:    'Switch browser engine, or run a natural language task via the subagent',
     handler: async (args, rl) => {
       const engines = getEngineList();
       const current = readBrowserPref();
 
-      if (args) {
+      // Check if it's a simple browser selection/switch command
+      if (args && !args.includes(' ') && engines.some(e => e.key === args.toLowerCase().trim())) {
         const key = args.toLowerCase().trim();
         const match = engines.find(e => e.key === key);
-        if (!match) {
-          console.log(`\n  Unknown browser "${key}". Options: ${engines.map(e => e.key).join(', ')}\n`);
-          return;
-        }
         saveBrowserPref(key);
         console.log(`\n  ✓ Browser set to ${match.name}\n`);
         return;
       }
 
-      // Interactive selection
+      // If there are args, treat it as a subagent task!
+      if (args) {
+        let task = args;
+        const hidden = task.includes('--hidden');
+        task = task.replace('--hidden', '').trim();
+
+        // Extract optional --engine override
+        let engine = current;
+        const engineMatch = task.match(/--engine=(\S+)/);
+        if (engineMatch) {
+          engine = engineMatch[1];
+          task = task.replace(engineMatch[0], '').trim();
+        }
+
+        // Extract optional --provider override (AI provider)
+        let aiEngine = 'playwright';
+        const aiMatch = task.match(/--provider=(\S+)/);
+        if (aiMatch) {
+          aiEngine = aiMatch[1];
+          task = task.replace(aiMatch[0], '').trim();
+        }
+
+        const { runBrowserSubagent } = await import('./src/subagent/index.js');
+        await runBrowserSubagent(task, {
+          engine,
+          aiEngine,
+          hidden
+        });
+        return;
+      }
+
+      // Interactive selection (default fallback when no args)
       console.log('\n  Select a browser:\n');
       engines.forEach((e, i) => {
         const marker = e.key === current ? ' ← active' : '';

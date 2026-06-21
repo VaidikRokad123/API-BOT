@@ -212,6 +212,8 @@ export class PlaywrightPage {
   }
 
   async screenshot(opts = {}) { return this.page.screenshot(opts); }
+  on(event, cb) { this.page.on(event, cb); }
+  video() { return this.page.video(); }
   async close() { return this.page.close(); }
 }
 
@@ -224,11 +226,12 @@ export class PlaywrightBrowser {
 
   // Create the single context for this engine, optionally seeding storageState.
   // Session files already use Playwright's storageState shape ({cookies,origins}).
-  async initContext({ storageState, userAgent, viewport } = {}) {
+  async initContext({ storageState, userAgent, viewport, recordVideo } = {}) {
     if (this.context) return this.context;
     const opts = { viewport: viewport || { width: 1280, height: 900 } };
     if (userAgent || this.userAgent) opts.userAgent = userAgent || this.userAgent;
     if (storageState) opts.storageState = storageState;
+    if (recordVideo) opts.recordVideo = recordVideo;
     this.context = await this.browser.newContext(opts);
     return this.context;
   }

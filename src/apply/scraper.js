@@ -301,6 +301,15 @@ function scrapeFrameDOM() {
     const tag = el.tagName.toLowerCase();
     if (tag === 'select') return;
     if (el.querySelector('select')) return;
+
+    // Skip search bars, query inputs, and filter textboxes
+    const searchLabel = getLabel(el) || el.getAttribute('aria-label') || '';
+    const placeholder = el.getAttribute('placeholder') || '';
+    const idOrName = (el.id || '') + ' ' + (el.name || '') + ' ' + (el.className || '');
+    const lower = (searchLabel + ' ' + placeholder + ' ' + idOrName).toLowerCase();
+    const isSearch = lower.includes('search') || lower.includes('find') || lower.includes('query') || lower.includes('filter') || lower.includes('lookup');
+    if (tag === 'input' && isSearch) return;
+
     const rect = el.getBoundingClientRect();
     const style = window.getComputedStyle(el);
     if (rect.width === 0 || style.display === 'none' || style.visibility === 'hidden' ||
