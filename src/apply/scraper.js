@@ -3,6 +3,19 @@ import { isDropdownPlaceholder } from './dropdown.js';
 export async function scrapePageState(page) {
   const pageState = await page.evaluate(() => {
 
+    function isVisible(node) {
+      if (!node) return false;
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      return style.display !== 'none' &&
+             style.visibility !== 'hidden' &&
+             style.opacity !== '0' &&
+             rect.width > 0 &&
+             rect.height > 0 &&
+             node.getAttribute('aria-hidden') !== 'true' &&
+             !node.closest('[aria-hidden="true"]');
+    }
+
     function getSelector(el) {
       const attrValue = value => String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
         .replace(/\r/g, '\\d ').replace(/\n/g, '\\a ');
@@ -156,14 +169,7 @@ export async function scrapePageState(page) {
           return;
         }
       } else {
-        if ((rect.width === 0 && rect.height === 0) ||
-            style.display === 'none' ||
-            style.visibility === 'hidden' ||
-            style.opacity === '0' ||
-            el.getAttribute('aria-hidden') === 'true' ||
-            el.closest('[aria-hidden="true"]')) {
-          return;
-        }
+        if (!isVisible(el)) return;
         // Skip elements positioned off-screen (often phantom token inputs)
         if (rect.bottom < 0 || rect.right < 0 || rect.left > window.innerWidth || rect.top > window.innerHeight) {
           if (style.position === 'absolute' || style.position === 'fixed') {
@@ -303,6 +309,7 @@ export async function scrapePageState(page) {
     const seenSelectors = new Set();
 
     const addBtn = (el) => {
+      if (!isVisible(el)) return;
       const sel = getSelector(el);
       if (seenSelectors.has(sel)) return;
       const text = (el.innerText || el.value || '').trim().replace(/\s+/g, ' ');
@@ -347,7 +354,7 @@ export async function scrapePageState(page) {
       fields: fields.slice(0, 160),
       checkboxGroups: checkboxGroupMap,
       canvases,
-      buttons: buttons.slice(0, 25),
+      buttons: buttons.slice(0, 100),
     };
   });
 

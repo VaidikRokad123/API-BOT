@@ -2,7 +2,7 @@ export function isSubmissionConfirmed(pageState) {
   const text = String(pageState?.pageText || '').replace(/\s+/g, ' ').trim();
   const url = String(pageState?.url || '');
   const hasSubmitButton = (pageState?.buttons || []).some(button =>
-    !button.disabled && /^(?:submit|submit application|submit my application)$/i.test(String(button.text || '').trim())
+    !button.disabled && /^(?:submit|submit\s+application|submit\s+my\s+application|apply|complete|finish|complete\s+application|send|confirm)$/i.test(String(button.text || '').trim().replace(/\s+/g, ' '))
   );
 
   const textConfirmsSubmission = [
