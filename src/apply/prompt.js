@@ -216,6 +216,12 @@ Positioning: ${research.positioningStatement?.slice(0, 200)}
     ? relevantButtons
     : pageState.buttons.filter(b => !b.disabled).slice(0, 10);
 
+  // Playwright engine only — compact accessibility tree for extra context.
+  // Read-only reference; still ACT using selectors from FIELDS/BUTTONS.
+  const ariaBlock = pageState.ariaSnapshot
+    ? `\nACCESSIBILITY TREE (role + name + state — reference only, act via FIELDS selectors):\n${pageState.ariaSnapshot}\n`
+    : '';
+
   return `
 You are an AI job application agent (step ${step}). Return ONLY raw JSON — no markdown.
 
@@ -233,7 +239,7 @@ ${groupsBlock}
 CANVASES: ${JSON.stringify(pageState.canvases)}
 
 BUTTONS: ${JSON.stringify(buttonsToShow.map(b => ({ text: b.text, selector: b.selector })))}
-
+${ariaBlock}
 FORMAT:
 {"reasoning":"...","actions":[{"type":"fill|select|check|upload|signature|click","selector":"...","value":"...","description":"..."}],"status":"continue|done|error","message":"..."}
 

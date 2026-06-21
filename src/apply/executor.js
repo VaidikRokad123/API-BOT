@@ -83,15 +83,35 @@ async function readCustomSelection(page, selector) {
     add(element.innerText);
     const activeId = element.getAttribute('aria-activedescendant');
     if (activeId) add(document.getElementById(activeId)?.textContent);
-    const container = element.closest('[data-automation-id*="dropdown" i], [data-automation-id*="select" i], [class*="dropdown" i], [class*="select" i]') ||
-      element.parentElement;
-    container?.querySelectorAll('[aria-selected="true"], [data-selected="true"], [role="combobox"], input[type="hidden"], [class*="selected" i], [class*="title" i]')
-      .forEach(node => {
-        add(node.value);
-        add(node.getAttribute('aria-valuetext'));
-        add(node.getAttribute('aria-label'));
-        add(node.innerText);
+
+    // react-select renders the committed label in a SIBLING of the
+    // <input role=combobox> (e.g. .select__single-value), so we must search the
+    // whole field wrapper — NOT closest('[class*=select]'), which stops at the
+    // narrow .select__input-container that holds only the input. Prefer the
+    // data-test-id/data-automation-id wrapper; else scan a few ancestor levels.
+    const containers = [];
+    const tagged = element.closest('[data-test-id], [data-automation-id]');
+    if (tagged) containers.push(tagged);
+    let node = element.parentElement;
+    for (let i = 0; i < 4 && node && node !== document.body; i++, node = node.parentElement) {
+      containers.push(node);
+    }
+    const valueSelector = [
+      '[aria-selected="true"]', '[data-selected="true"]',
+      'input[type="hidden"]',
+      '[class*="single-value" i]', '[class*="singleValue" i]', '[class*="single_value" i]',
+      '[class*="selected" i]', '[class*="title" i]', '[class*="value" i]',
+    ].join(', ');
+    for (const container of new Set(containers)) {
+      container.querySelectorAll(valueSelector).forEach(n => {
+        if (n === element) return;        // skip the search input (blank after commit)
+        add(n.value);
+        add(n.getAttribute('aria-valuetext'));
+        add(n.getAttribute('aria-label'));
+        add(n.innerText);
+        add(n.textContent);
       });
+    }
     return [...values];
   }, current).catch(() => []);
 }
@@ -366,14 +386,16 @@ export async function executeAction(page, action, profile) {
           }
 
           if (result.clicked) {
-            await new Promise(r => setTimeout(r, 250));
+            await new Promise(r => setTimeout(r, 400));
             const actualValues = await readCustomSelection(page, action.selector);
             const verifiedValue = findVerifiedDropdownValue(actualValues, result.text);
             if (verifiedValue) {
               console.log(`    → selected "${result.text}" (now "${verifiedValue}") ✓`);
             } else {
-              await page.keyboard.press('Escape').catch(() => {});
-              console.log(`    ⚠ Widget rejected "${result.text}"; selection was not committed`);
+              // The option WAS clicked. Do NOT press Escape — on a react-select
+              // widget that would revert a value we just committed but couldn't
+              // read back. Trust the click and let the next scrape confirm.
+              console.log(`    → clicked "${result.text}" (display not verifiable; left as-is)`);
             }
           } else {
             await page.keyboard.press('Escape').catch(() => {});

@@ -393,5 +393,13 @@ export async function scrapePageState(page) {
     }
   }
 
+  // Playwright engine only: attach a compact accessibility tree (role + name +
+  // state). Cheap tokens, naturally excludes hidden nodes. Other engines skip
+  // this — page.ariaSnapshot is undefined and the AI uses FIELDS as before.
+  if (typeof page.ariaSnapshot === 'function') {
+    const snap = await page.ariaSnapshot().catch(() => null);
+    if (snap) pageState.ariaSnapshot = snap.slice(0, 6000);
+  }
+
   return pageState;
 }

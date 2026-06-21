@@ -53,6 +53,26 @@ async function isPageAlive(page) {
 }
 
 /**
+ * Return the first VISIBLE element matching any selector in the list, else null.
+ * Google ships hidden decoy inputs (e.g. a hidden type=password named
+ * "hiddenPassword"), so we must filter by visibility, not just match the type.
+ */
+async function firstVisibleHandle(page, selectors) {
+  for (const sel of selectors) {
+    const els = await page.$$(sel).catch(() => []);
+    for (const el of els) {
+      const vis = await page.evaluate(e => {
+        const r = e.getBoundingClientRect();
+        const s = window.getComputedStyle(e);
+        return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+      }, el).catch(() => false);
+      if (vis) return el;
+    }
+  }
+  return null;
+}
+
+/**
  * Automates Google Login steps programmatically.
  * Returns true if it performed an action or paused for user interaction, false otherwise.
  */
@@ -105,15 +125,17 @@ export async function autoHandleGoogleLogin(page, profile) {
     }
   }
 
-  // 3. Email input
-  const emailInput = await page.$('input[type="email"]').catch(() => null);
+  // 3. Email input — Google's field is type="text" (id=identifierId,
+  // name=identifier), NOT type="email". Match the real selectors.
+  const emailInput = await firstVisibleHandle(page, [
+    '#identifierId',
+    'input[name="identifier"]',
+    'input[type="email"]',
+    'input[autocomplete="username"]',
+  ]);
   if (emailInput) {
-    const visible = await page.evaluate(e => {
-      const r = e.getBoundingClientRect();
-      return r.width > 0 && r.height > 0 && window.getComputedStyle(e).display !== 'none';
-    }, emailInput).catch(() => false);
     const val = await page.evaluate(e => e.value, emailInput).catch(() => '');
-    if (visible && !val) {
+    if (!val) {
       console.log(`    [Auto-Login] Entering Google email: ${googleEmail}`);
       await emailInput.click().catch(() => {});
       await page.keyboard.type(googleEmail, { delay: 30 });
@@ -127,15 +149,17 @@ export async function autoHandleGoogleLogin(page, profile) {
     }
   }
 
-  // 4. Password input — type the REAL password from profile (never a token)
-  const passwordInput = await page.$('input[type="password"]').catch(() => null);
+  // 4. Password input — type the REAL password from profile (never a token).
+  // Skip Google's hidden decoy input (name="hiddenPassword"); pick the visible one.
+  const passwordInput = await firstVisibleHandle(page, [
+    'input[type="password"][name="Passwd"]',
+    'input[name="Passwd"]',
+    'input[type="password"]:not([name="hiddenPassword"])',
+    'input[type="password"]',
+  ]);
   if (passwordInput) {
-    const visible = await page.evaluate(e => {
-      const r = e.getBoundingClientRect();
-      return r.width > 0 && r.height > 0 && window.getComputedStyle(e).display !== 'none';
-    }, passwordInput).catch(() => false);
     const val = await page.evaluate(e => e.value, passwordInput).catch(() => '');
-    if (visible && !val) {
+    if (!val) {
       const googlePassword = profile.credentials?.google?.password || '';
       if (!googlePassword) {
         console.log('    ⚠ No Google password in profile.credentials.google.password');
@@ -232,14 +256,30 @@ RULES:
 }
 
 /**
+ * Wait for the popup to actually close, up to `ms`. Returns true if it closed.
+ */
+async function waitForPopupClose(page, ms = 8000) {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    if (!await isPageAlive(page)) return true;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return !await isPageAlive(page);
+}
+
+/**
  * Deterministic Google login loop — NO AI, NO placeholder tokens.
  * Drives accounts.google.com purely with real credentials from profile.json
  * (account chooser → email → password → consent), pausing only for 2FA/CAPTCHA.
- * Returns when the popup closes or navigates away from Google.
+ *
+ * CRITICAL: this BLOCKS until the popup closes. It never hands control back to
+ * the main apply loop while the popup is still open — otherwise the AI re-clicks
+ * "Sign in with Google" and stacks duplicate popups (the bug seen in the logs).
+ * When genuinely stuck it PAUSES for the user instead of returning.
  */
 async function runGoogleLogin(page, profile) {
-  console.log('  🔐 Google login — deterministic handler (no AI)');
-  const MAX = 20;
+  console.log('  🔐 Google login — deterministic handler (blocks until popup closes)');
+  const MAX = 60;
   let idle = 0;
 
   for (let step = 1; step <= MAX; step++) {
@@ -250,8 +290,13 @@ async function runGoogleLogin(page, profile) {
 
     let url = '';
     try { url = page.url(); } catch { return true; }
+
+    // Popup navigated off Google (OAuth redirect back to the app) — it's about to
+    // close itself. Wait for that close before returning, so the main page is not
+    // touched while a popup is still visibly open.
     if (!url.includes('accounts.google.com')) {
-      console.log('  ✓ Left Google domain — login complete!');
+      console.log('  ✓ Left Google (OAuth redirect) — waiting for popup to close...');
+      await waitForPopupClose(page, 10000);
       return true;
     }
 
@@ -259,6 +304,7 @@ async function runGoogleLogin(page, profile) {
     if (await detectCaptcha(page)) {
       console.log('\n⚠️  [PAUSE] CAPTCHA detected on Google login. Solve it in the browser.');
       await pauseForUser('   Press ENTER to resume > ');
+      idle = 0;
       continue;
     }
 
@@ -272,18 +318,26 @@ async function runGoogleLogin(page, profile) {
     if (acted) {
       idle = 0;
       await new Promise(r => setTimeout(r, 2500));
-    } else {
-      // Nothing actionable found — page may still be loading, or waiting on
-      // a manual step (2FA). Wait briefly; bail after a few idle rounds.
-      idle++;
-      if (idle >= 4) {
-        console.log('  ⚠ Google login stuck (no actionable element). May need manual help.');
+      continue;
+    }
+
+    // Nothing actionable — page may still be loading. Give it a few rounds, then
+    // PAUSE for the user (do NOT return — that re-triggers the Google click).
+    idle++;
+    if (idle >= 3) {
+      console.log('\n⚠️  [PAUSE] Google sign-in needs your help. Finish it in the popup window.');
+      console.log('   (e.g. pick the account, approve consent, or solve a challenge)');
+      await pauseForUser('   Press ENTER once the popup has signed in or closed > ');
+      idle = 0;
+      if (!await isPageAlive(page)) {
+        console.log('  ✓ Google popup closed — login complete!');
         return true;
       }
-      await new Promise(r => setTimeout(r, 2000));
+      continue;
     }
+    await new Promise(r => setTimeout(r, 1500));
   }
-  console.log('  ⚠ Google login max steps reached.');
+  console.log('  ⚠ Google login: max steps reached — leaving popup as-is.');
   return true;
 }
 

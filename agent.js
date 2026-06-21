@@ -145,8 +145,8 @@ const COMMANDS = {
   },
 
   '/browser': {
-    usage:   '/browser [chromium|firefox|webkit]',
-    desc:    'Switch browser engine (Chromium, Firefox, or WebKit)',
+    usage:   '/browser [chrome|chromium|selenium|playwright]',
+    desc:    'Switch browser engine (Playwright enables ariaSnapshot scraping)',
     handler: async (args, rl) => {
       const engines = getEngineList();
       const current = readBrowserPref();

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { Builder } from 'selenium-webdriver';
 import chrome from 'selenium-webdriver/chrome.js';
 import { SeleniumBrowser } from './selenium-adapter.js';
+import { PlaywrightBrowser } from './playwright-adapter.js';
 
 // Initialize stealth plugin
 puppeteer.use(StealthPlugin());
@@ -17,9 +18,10 @@ const BROWSER_PREF_FILE = path.join(__dirname, '..', 'session', 'browser.json');
 // ─── Browser engines ───────────────────────────────────────────────────────
 
 const ENGINES = {
-  chrome:    { name: 'Chrome (Real Installed)' },
-  chromium:  { name: 'Chromium (Bundled)' },
-  selenium:  { name: 'Selenium (Chrome Driver)' },
+  chrome:     { name: 'Chrome (Real Installed)' },
+  chromium:   { name: 'Chromium (Bundled)' },
+  selenium:   { name: 'Selenium (Chrome Driver)' },
+  playwright: { name: 'Playwright (ariaSnapshot scraping)' },
 };
 
 export function readBrowserPref() {
@@ -80,6 +82,32 @@ export async function launchBrowser(visible = false, profileSuffix = '') {
     return new SeleniumBrowser(driver);
   }
 
+  if (pref === 'playwright') {
+    let chromium;
+    try {
+      ({ chromium } = await import('playwright'));
+    } catch {
+      throw new Error('Playwright engine selected but not installed. Run:\n  npm install playwright\n  npx playwright install chromium');
+    }
+    // MUST run headful with the real Chrome channel. Headless bundled Chromium
+    // trips Cloudflare on ChatGPT/providers (challenge page → readySelector never
+    // appears → openAiSession stalls). This mirrors the working Puppeteer chrome
+    // path. `visible` is intentionally ignored, exactly like the chrome branch.
+    const pwBrowser = await chromium.launch({
+      headless: false,
+      channel: 'chrome',
+      ignoreDefaultArgs: ['--enable-automation'],
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-infobars',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--window-size=1280,900',
+      ],
+    });
+    return new PlaywrightBrowser(pwBrowser, { userAgent: USER_AGENTS.chrome });
+  }
+
   const launchOpts = {
     headless: false,
     ignoreDefaultArgs: ['--enable-automation'],
@@ -108,6 +136,35 @@ export async function launchBrowser(visible = false, profileSuffix = '') {
 }
 
 export async function newStealthContext(browser, storageStatePath = null) {
+  // Playwright: create one context, seeding storageState directly (session files
+  // already use Playwright's {cookies, origins} shape). The browser object itself
+  // is the context wrapper — newPage/pages/close all live on it.
+  if (browser instanceof PlaywrightBrowser) {
+    let storageState;
+    if (storageStatePath && fs.existsSync(storageStatePath)) {
+      try {
+        const state = JSON.parse(fs.readFileSync(storageStatePath, 'utf8'));
+        // Sanitize cookie sameSite to Playwright's enum to avoid load errors.
+        const cookies = (state.cookies || []).map(c => ({
+          ...c,
+          sameSite: ['Strict', 'Lax', 'None'].includes(c.sameSite)
+            ? c.sameSite
+            : (String(c.sameSite || '').toLowerCase() === 'none' ? 'None'
+              : String(c.sameSite || '').toLowerCase() === 'strict' ? 'Strict' : 'Lax'),
+        }));
+        storageState = { cookies, origins: state.origins || [] };
+      } catch (err) {
+        console.error('  Failed to restore storageState (Playwright):', err.message);
+      }
+    }
+    await browser.initContext({
+      storageState,
+      userAgent: USER_AGENTS.chrome,
+      viewport: { width: 1280, height: 900 },
+    });
+    return browser;
+  }
+
   // If this is a Selenium browser, wrap page creation to inject cookies on navigation
   if (browser instanceof SeleniumBrowser) {
     const wrapper = {
