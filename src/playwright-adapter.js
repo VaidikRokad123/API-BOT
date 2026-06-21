@@ -1,8 +1,8 @@
 // ─── Playwright Engine Adapter ──────────────────────────────────────────────
 // Exposes a Puppeteer-compatible surface (the subset this codebase uses) on top
-// of Playwright, mirroring selenium-adapter.js. Selected only when the user
-// picks the "playwright" engine; every other engine keeps the old Puppeteer path
-// untouched. The payoff of choosing Playwright is page.ariaSnapshot(), surfaced
+// of Playwright. Selected when the user picks the "playwright" engine (the
+// default); the real-chrome/brave/opera engines keep the Puppeteer CDP-connect
+// path untouched. The payoff of choosing Playwright is page.ariaSnapshot(), surfaced
 // to the scraper so the AI gets a compact accessibility tree.
 //
 // Two API gaps bridged here:
@@ -41,6 +41,46 @@ export class PlaywrightElement {
   async select(...values) { return this.handle.selectOption(values); }
   async boundingBox() { return this.handle.boundingBox(); }
   async scrollIntoViewIfNeeded() { await this.handle.scrollIntoViewIfNeeded().catch(() => {}); }
+  // For an <iframe> handle, the frame it hosts — used by the iframe scraper.
+  async contentFrame() {
+    const f = await this.handle.contentFrame().catch(() => null);
+    return f ? new PlaywrightFrame(f) : null;
+  }
+}
+
+// Frame wrapper — mirrors the page's CSP-safe multi-arg evaluate so the iframe
+// scraper/executor can treat a sub-frame like a page (frames(), mainFrame(),
+// parentFrame(), frameElement(), contentFrame()).
+export class PlaywrightFrame {
+  constructor(frame) { this.frame = frame; this.__pwFrame = true; }
+  url() { return this.frame.url(); }
+  parentFrame() {
+    const p = this.frame.parentFrame();
+    return p ? new PlaywrightFrame(p) : null;
+  }
+  async frameElement() {
+    const el = await this.frame.frameElement().catch(() => null);
+    return el ? new PlaywrightElement(el) : null;
+  }
+  async contentFrame() { return this; }
+  async evaluate(fn, ...args) {
+    if (typeof fn !== 'function') return this.frame.evaluate(fn);
+    return this.frame.evaluate(buildWrapper(fn), args.map(unwrap));
+  }
+  async evaluateHandle(fn, ...args) {
+    const h = typeof fn === 'function'
+      ? await this.frame.evaluateHandle(buildWrapper(fn), args.map(unwrap))
+      : await this.frame.evaluateHandle(fn);
+    return new PlaywrightElement(h);
+  }
+  async $(selector) {
+    const el = await this.frame.$(selector).catch(() => null);
+    return el ? new PlaywrightElement(el) : null;
+  }
+  async $$(selector) {
+    const list = await this.frame.$$(selector).catch(() => []);
+    return list.map(el => new PlaywrightElement(el));
+  }
 }
 
 function unwrap(arg) {
@@ -78,6 +118,11 @@ export class PlaywrightPage {
   url() { return this.page.url(); }                 // sync string, like Puppeteer
   title() { return this.page.title(); }
   isClosed() { return this.page.isClosed(); }
+
+  // Frame access — required by the iframe-aware scraper/executor. Without these,
+  // page.frames() is undefined and scrapePageState crashes on this engine.
+  frames() { return this.page.frames().map(f => new PlaywrightFrame(f)); }
+  mainFrame() { return new PlaywrightFrame(this.page.mainFrame()); }
 
   async goto(url, opts = {}) {
     return this.page.goto(url, {

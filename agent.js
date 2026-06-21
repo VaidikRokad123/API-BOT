@@ -130,30 +130,24 @@ const COMMANDS = {
 
       if (!url) { console.log('\n  Usage: /apply <job-url> [--hidden]\n'); return; }
 
-      // 1. Choose AI Browser
+      // 1. Choose AI Browser (Brain) — always the controllable Playwright engine.
       console.log('\n  Select browser engine for AI (Brain):');
       const aiEngines = [
-        { key: 'chrome', name: 'Chrome (Separate Profile)' },
-        { key: 'chromium', name: 'Chromium (Bundled)' },
         { key: 'playwright', name: 'Playwright (ariaSnapshot)' },
-        { key: 'selenium', name: 'Selenium' },
       ];
       aiEngines.forEach((e, i) => console.log(`    ${i + 1})  ${e.name}`));
       console.log();
       const aiAns = (await new Promise(resolve => rl.question(`  Enter 1–${aiEngines.length} [default: 1]: `, resolve))).trim();
       const aiIdx = parseInt(aiAns, 10) - 1;
-      const aiEngine = (aiIdx >= 0 && aiIdx < aiEngines.length) ? aiEngines[aiIdx].key : 'chrome';
+      const aiEngine = (aiIdx >= 0 && aiIdx < aiEngines.length) ? aiEngines[aiIdx].key : 'playwright';
 
-      // 2. Choose Job App Browser
+      // 2. Choose Job App Browser (Hands)
       console.log('\n  Select browser engine for Job Application (Hands):');
       const appEngines = [
         { key: 'real-chrome', name: 'Real Chrome (connect over CDP)' },
         { key: 'real-brave', name: 'Real Brave (connect over CDP)' },
         { key: 'real-opera', name: 'Real Opera (connect over CDP)' },
-        { key: 'chrome', name: 'Chrome (Separate Profile)' },
-        { key: 'chromium', name: 'Chromium (Bundled)' },
         { key: 'playwright', name: 'Playwright' },
-        { key: 'selenium', name: 'Selenium' },
       ];
       appEngines.forEach((e, i) => console.log(`    ${i + 1})  ${e.name}`));
       console.log();
@@ -185,7 +179,7 @@ const COMMANDS = {
   },
 
   '/browser': {
-    usage:   '/browser [chrome|chromium|selenium|playwright|real-chrome|real-brave|real-opera]',
+    usage:   '/browser [playwright|real-chrome|real-brave|real-opera]',
     desc:    'Switch browser engine',
     handler: async (args, rl) => {
       const engines = getEngineList();

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { openAiSession, sendMessage } from '../ai.js';
 import { launchBrowser, newStealthContext } from '../browser.js';
 import { PROFILE_FILE } from '../config.js';
-import { scrapePageState } from './scraper.js';
+import { scrapePageState, installClickListenerTracker } from './scraper.js';
 import { buildAgentPrompt, sanitizeGptJson } from './prompt.js';
 import { executeAction, autoHandleSpecials } from './executor.js';
 import { researchJob } from './research.js';
@@ -45,7 +45,8 @@ export async function apply(jobUrl, visible = true, options = {}) {
   const appCtx     = await newStealthContext(appBrowser);
   const appPage    = await appCtx.newPage();
 
-
+  // Hook click listeners BEFORE navigation so custom (React/Vue) buttons are detected.
+  await installClickListenerTracker(appPage);
 
   try {
     await appPage.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });

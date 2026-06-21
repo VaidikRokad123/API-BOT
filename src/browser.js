@@ -4,9 +4,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
-import { Builder } from 'selenium-webdriver';
-import chrome from 'selenium-webdriver/chrome.js';
-import { SeleniumBrowser } from './selenium-adapter.js';
 import { PlaywrightBrowser } from './playwright-adapter.js';
 
 // Initialize stealth plugin
@@ -19,13 +16,10 @@ const BROWSER_PREF_FILE = path.join(__dirname, '..', 'session', 'browser.json');
 // ─── Browser engines ───────────────────────────────────────────────────────
 
 const ENGINES = {
-  chrome:     { name: 'Chrome (Real Installed, separate profile)' },
+  playwright:    { name: 'Playwright (ariaSnapshot scraping)' },
   'real-chrome': { name: 'Real Chrome (connect over CDP)' },
   'real-brave':  { name: 'Real Brave (connect over CDP)' },
   'real-opera':  { name: 'Real Opera (connect over CDP)' },
-  chromium:   { name: 'Chromium (Bundled)' },
-  selenium:   { name: 'Selenium (Chrome Driver)' },
-  playwright: { name: 'Playwright (ariaSnapshot scraping)' },
 };
 
 const REAL_BROWSER_CONFIG = {
@@ -56,14 +50,11 @@ const realBrowserConnections = new WeakSet();
 export function readBrowserPref() {
   try {
     const data = JSON.parse(fs.readFileSync(BROWSER_PREF_FILE, 'utf8'));
-    if (data.browser === 'firefox' || data.browser === 'webkit' || data.browser === 'chromium') {
-      return 'chromium'; // Map Playwright engines to bundled Chromium
-    }
-    if (data.browser === 'puppeteer') return 'chrome';
     if (data.browser === 'real') return 'real-chrome';
     if (ENGINES[data.browser]) return data.browser;
+    // Any retired engine (chrome/chromium/selenium/firefox/webkit) → Playwright.
   } catch { /* ignore */ }
-  return 'chrome'; // default to real Chrome
+  return 'playwright'; // default: self-contained engine, no manual browser start
 }
 
 function markRealBrowserConnection(browser) {
@@ -128,9 +119,7 @@ export function getEngineList() {
 }
 
 const USER_AGENTS = {
-  chrome:   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  chromium: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  selenium: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  chrome: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
 };
 
 // ─── Launch & context ──────────────────────────────────────────────────────
@@ -138,8 +127,10 @@ const USER_AGENTS = {
 export async function launchBrowser(visible = false, profileSuffix = '', options = {}) {
   let pref = options.engine || readBrowserPref();
 
+  // AI / login / council sessions must never hijack the user's real browser —
+  // fall back to the controllable Playwright engine.
   if (options.forceAutomated && pref.startsWith('real-')) {
-    pref = 'chrome';
+    pref = 'playwright';
   }
 
   if (REAL_BROWSER_CONFIG[pref]) {
@@ -169,82 +160,29 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
     }
   }
 
-  if (pref === 'selenium') {
-    const options = new chrome.Options();
-    options.addArguments('--disable-blink-features=AutomationControlled');
-    options.addArguments('--disable-infobars');
-    options.addArguments('--no-sandbox');
-    options.addArguments('--disable-setuid-sandbox');
-
-    const suffix = profileSuffix ? `-${profileSuffix}` : '';
-    const profileDir = path.join(__dirname, '..', 'session', `chrome-profile-selenium${suffix}`);
-    if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true });
-    options.addArguments(`--user-data-dir=${profileDir}`);
-    options.addArguments('--window-size=1280,900');
-
-    if (!visible) {
-      options.addArguments('--headless=new');
-    }
-
-    const driver = await new Builder()
-      .forBrowser('chrome')
-      .setChromeOptions(options)
-      .build();
-
-    return new SeleniumBrowser(driver);
+  // Everything that isn't a real-browser connection runs on Playwright — the only
+  // bundled engine. MUST be headful with the real Chrome channel: headless bundled
+  // Chromium trips Cloudflare on ChatGPT/providers (challenge page → readySelector
+  // never appears → openAiSession stalls). `visible`/`profileSuffix` are unused here.
+  let chromium;
+  try {
+    ({ chromium } = await import('playwright'));
+  } catch {
+    throw new Error('Playwright not installed. Run:\n  npm install playwright\n  npx playwright install chromium');
   }
-
-  if (pref === 'playwright') {
-    let chromium;
-    try {
-      ({ chromium } = await import('playwright'));
-    } catch {
-      throw new Error('Playwright engine selected but not installed. Run:\n  npm install playwright\n  npx playwright install chromium');
-    }
-    // MUST run headful with the real Chrome channel. Headless bundled Chromium
-    // trips Cloudflare on ChatGPT/providers (challenge page → readySelector never
-    // appears → openAiSession stalls). This mirrors the working Puppeteer chrome
-    // path. `visible` is intentionally ignored, exactly like the chrome branch.
-    const pwBrowser = await chromium.launch({
-      headless: false,
-      channel: 'chrome',
-      ignoreDefaultArgs: ['--enable-automation'],
-      args: [
-        '--disable-blink-features=AutomationControlled',
-        '--disable-infobars',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--window-size=1280,900',
-      ],
-    });
-    return new PlaywrightBrowser(pwBrowser, { userAgent: USER_AGENTS.chrome });
-  }
-
-  const launchOpts = {
+  const pwBrowser = await chromium.launch({
     headless: false,
+    channel: 'chrome',
     ignoreDefaultArgs: ['--enable-automation'],
     args: [
       '--disable-blink-features=AutomationControlled',
       '--disable-infobars',
       '--no-sandbox',
       '--disable-setuid-sandbox',
+      '--window-size=1280,900',
     ],
-  };
-
-  if (pref === 'chrome') {
-    launchOpts.channel = 'chrome';
-    const suffix = profileSuffix ? `-${profileSuffix}` : '';
-    const profileDir = path.join(__dirname, '..', 'session', `chrome-profile${suffix}`);
-    if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true });
-    launchOpts.userDataDir = profileDir;
-    launchOpts.args.push('--window-size=1280,900');
-  } else {
-    if (!visible) {
-      launchOpts.args.push('--start-minimized');
-    }
-  }
-
-  return puppeteer.launch(launchOpts);
+  });
+  return new PlaywrightBrowser(pwBrowser, { userAgent: USER_AGENTS.chrome });
 }
 
 export async function newStealthContext(browser, storageStatePath = null) {
@@ -275,62 +213,6 @@ export async function newStealthContext(browser, storageStatePath = null) {
       viewport: { width: 1280, height: 900 },
     });
     return browser;
-  }
-
-  // If this is a Selenium browser, wrap page creation to inject cookies on navigation
-  if (browser instanceof SeleniumBrowser) {
-    const wrapper = {
-      newPage: async () => {
-        const page = await browser.newPage();
-        const pref = readBrowserPref();
-        await page.setUserAgent(USER_AGENTS[pref] || USER_AGENTS.selenium);
-        await page.setViewport({ width: 1280, height: 900 });
-
-        if (storageStatePath && fs.existsSync(storageStatePath)) {
-          try {
-            const state = JSON.parse(fs.readFileSync(storageStatePath, 'utf8'));
-
-            // Hook goto to load cookies and localStorage on page load
-            const originalGoto = page.goto.bind(page);
-            page.goto = async (url, opts) => {
-              await originalGoto(url, opts);
-
-              // 1. Cookies (domain must match current page)
-              if (state.cookies && state.cookies.length) {
-                await page.setCookie(...state.cookies);
-              }
-
-              // 2. LocalStorage (domain must match current page)
-              if (state.origins && state.origins.length) {
-                const origin = new URL(url).origin;
-                const originEntry = state.origins.find(o => o.origin === origin);
-                if (originEntry && originEntry.localStorage) {
-                  await page.evaluate((items) => {
-                    for (const item of items) {
-                      window.localStorage.setItem(item.name, item.value);
-                    }
-                  }, originEntry.localStorage);
-                }
-              }
-
-              // Reload page to apply changes
-              await originalGoto(url, opts);
-            };
-          } catch (err) {
-            console.error('  Failed to restore storageState in Selenium:', err.message);
-          }
-        }
-        return page;
-      }
-    };
-
-    return new Proxy(wrapper, {
-      get(targetObj, prop) {
-        if (prop in targetObj) return targetObj[prop];
-        const val = browser[prop];
-        return typeof val === 'function' ? val.bind(browser) : val;
-      }
-    });
   }
 
   const ctx = browser.defaultBrowserContext();

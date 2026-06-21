@@ -8,14 +8,13 @@
     "login": "node agent.js login",
     "chat": "node agent.js chat",
     "apply": "node agent.js apply",
-    "test": "node --test test/dropdown.test.js test/completion.test.js test/apply-prompt.test.js test/selector.test.js test/selenium-adapter.test.js"
+    "test": "node --test test/dropdown.test.js test/completion.test.js test/apply-prompt.test.js test/selector.test.js"
   },
   "dependencies": {
     "playwright": "^1.61.0",
     "puppeteer": "^25.1.0",
     "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "selenium-webdriver": "^4.22.0"
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "keywords": [
     "automation",

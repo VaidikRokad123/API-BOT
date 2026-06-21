@@ -22,6 +22,26 @@ function actionSettleMs(type) {
 }
 
 async function findActionElement(page, selector) {
+  if (selector.includes(' >>> ')) {
+    const parts = selector.split(' >>> ');
+    let currentFrame = page.mainFrame ? page.mainFrame() : page;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (i === parts.length - 1) {
+        const direct = await currentFrame.$(part).catch(() => null);
+        if (direct) return direct;
+        const legacyId = idFromLegacySelector(part);
+        return legacyId ? currentFrame.$(attributeSelector('id', legacyId)).catch(() => null) : null;
+      } else {
+        const frameEl = await currentFrame.$(part).catch(() => null);
+        if (frameEl) {
+          currentFrame = await frameEl.contentFrame().catch(() => null);
+        } else {
+          return null;
+        }
+      }
+    }
+  }
   const direct = await page.$(selector).catch(() => null);
   if (direct) return direct;
   const legacyId = idFromLegacySelector(selector);
