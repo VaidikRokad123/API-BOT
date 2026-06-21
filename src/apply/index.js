@@ -39,7 +39,7 @@ export async function apply(jobUrl, visible = true, options = {}) {
   console.log(`Applying: ${profile.name} <${profile.email}>`);
   console.log(`Resume  : ${profile.resumePdfPath || '⚠ Not set'}\n`);
 
-  const { browser: aiBrowser, page: aiPage } = await openAiSession(false);
+  const { browser: aiBrowser, page: aiPage } = await openAiSession(false, { engine: options.aiEngine });
 
   const appBrowser = await launchBrowser(visible, 'apply', { engine: options.browserEngine });
   const appCtx     = await newStealthContext(appBrowser);
@@ -98,7 +98,13 @@ Return ONLY the JSON, nothing else.`;
 
     const pageText = await appPage.evaluate(() => document.body.innerText);
     const applicationUrl = appPage.url ? await appPage.url() : jobUrl;
-    const research = await researchJob(aiPage, applicationUrl, pageText, profile);
+    let research = null;
+    if (options.doResearch !== false) {
+      console.log('  🔍 Conducting job/company research...');
+      research = await researchJob(aiPage, applicationUrl, pageText, profile);
+    } else {
+      console.log('  ⚡ Skipping job/company research as requested.');
+    }
 
     for (let step = 1; step <= 20; step++) {
       console.log(`\n${'═'.repeat(52)}`);
@@ -148,7 +154,7 @@ Return ONLY the JSON, nothing else.`;
 
       if (agentResp.status === 'done' && !agentResp.actions?.length) {
         const submit = pageState.buttons.find(button =>
-          !button.disabled && /^(?:submit|submit application|submit my application)$/i.test(String(button.text || '').trim())
+          !button.disabled && /^(?:submit|submit\s+application|submit\s+my\s+application|apply|complete|finish|complete\s+application|send|confirm)$/i.test(String(button.text || '').trim().replace(/\s+/g, ' '))
         );
         console.log('  ⚠ AI reported done, but the website has not confirmed submission.');
         agentResp.status = 'continue';

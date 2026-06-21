@@ -14,7 +14,7 @@ export function readActiveKey() {
   }
 }
 
-export async function openAiSession(visible = false) {
+export async function openAiSession(visible = false, options = {}) {
   if (!fs.existsSync(ACTIVE_FILE)) {
     throw new Error('No provider selected yet. Type /login first.');
   }
@@ -27,7 +27,7 @@ export async function openAiSession(visible = false) {
     throw new Error(`No session for ${provider.config.name}. Type /login first.`);
   }
 
-  const browser = await launchBrowser(visible, _providerKey);
+  const browser = await launchBrowser(visible, _providerKey, { engine: options.engine, forceAutomated: true });
   const ctx     = await newStealthContext(browser, sFile);
   const page    = await ctx.newPage();
 

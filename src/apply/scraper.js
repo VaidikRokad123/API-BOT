@@ -328,6 +328,19 @@ export async function scrapePageState(page) {
     // Priority 4: Anchor elements (links)
     document.querySelectorAll('a').forEach(addBtn);
 
+    // Priority 5: Button-like divs, spans, or paragraphs
+    document.querySelectorAll('div, span, p').forEach(el => {
+      const text = (el.innerText || '').trim();
+      if (!text || text.length > 50) return;
+      const className = (el.className || '');
+      const idName = (el.id || '');
+      const isButtonClass = /(?:^|\s|-|_)(?:btn|button|submit|action)(?:\s|-|_|$)/i.test(className + ' ' + idName);
+      const isButtonText = /^(?:submit|apply|next|continue|confirm|save|finish|complete)\b/i.test(text);
+      if (isButtonClass || isButtonText) {
+        addBtn(el);
+      }
+    });
+
     return {
       url: window.location.href, title: document.title,
       pageText: document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 3000),

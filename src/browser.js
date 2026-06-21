@@ -3,6 +3,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 import { Builder } from 'selenium-webdriver';
 import chrome from 'selenium-webdriver/chrome.js';
 import { SeleniumBrowser } from './selenium-adapter.js';
@@ -30,16 +31,22 @@ const ENGINES = {
 const REAL_BROWSER_CONFIG = {
   'real-chrome': {
     label: 'Chrome',
+    executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    port: 9222,
     cdpUrl: process.env.REAL_CHROME_CDP_URL || 'http://127.0.0.1:9222',
     command: '& "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222',
   },
   'real-brave': {
     label: 'Brave',
+    executablePath: 'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+    port: 9223,
     cdpUrl: process.env.REAL_BRAVE_CDP_URL || 'http://127.0.0.1:9223',
     command: '& "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe" --remote-debugging-port=9223',
   },
   'real-opera': {
     label: 'Opera',
+    executablePath: path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Opera', 'opera.exe'),
+    port: 9224,
     cdpUrl: process.env.REAL_OPERA_CDP_URL || 'http://127.0.0.1:9224',
     command: '& "$env:LOCALAPPDATA\\Programs\\Opera\\opera.exe" --remote-debugging-port=9224',
   },
@@ -74,6 +81,42 @@ function isRealBrowserConnection(browser) {
   return realBrowserConnections.has(browser);
 }
 
+async function connectRealBrowser(realConfig) {
+  const browser = await puppeteer.connect({
+    browserURL: realConfig.cdpUrl,
+    defaultViewport: null,
+  });
+  return markRealBrowserConnection(browser);
+}
+
+function startRealBrowser(realConfig) {
+  if (!realConfig.executablePath || !fs.existsSync(realConfig.executablePath)) {
+    throw new Error(`Could not find ${realConfig.label} executable at ${realConfig.executablePath}`);
+  }
+  const child = spawn(realConfig.executablePath, [
+    `--remote-debugging-port=${realConfig.port}`,
+  ], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: false,
+  });
+  child.unref();
+}
+
+async function waitForRealBrowser(realConfig, timeoutMs = 8000) {
+  const started = Date.now();
+  let lastError = null;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      return await connectRealBrowser(realConfig);
+    } catch (err) {
+      lastError = err;
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  throw lastError || new Error(`Timed out waiting for ${realConfig.cdpUrl}`);
+}
+
 export function saveBrowserPref(key) {
   const dir = path.dirname(BROWSER_PREF_FILE);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -93,23 +136,36 @@ const USER_AGENTS = {
 // ─── Launch & context ──────────────────────────────────────────────────────
 
 export async function launchBrowser(visible = false, profileSuffix = '', options = {}) {
-  const pref = options.engine || readBrowserPref();
+  let pref = options.engine || readBrowserPref();
+
+  if (options.forceAutomated && pref.startsWith('real-')) {
+    pref = 'chrome';
+  }
 
   if (REAL_BROWSER_CONFIG[pref]) {
     const realConfig = REAL_BROWSER_CONFIG[pref];
     try {
-      const browser = await puppeteer.connect({
-        browserURL: realConfig.cdpUrl,
-        defaultViewport: null,
-      });
-      return markRealBrowserConnection(browser);
+      return await connectRealBrowser(realConfig);
     } catch (err) {
+      try {
+        console.log(`  Real ${realConfig.label} is not listening at ${realConfig.cdpUrl}. Trying to start it...`);
+        startRealBrowser(realConfig);
+        return await waitForRealBrowser(realConfig);
+      } catch (startErr) {
+        const originalMessage = err?.message || String(err);
+        const startMessage = startErr?.message || String(startErr);
+        const alreadyRunningHint = /fetch failed|ECONNREFUSED|ECONNRESET|Timed out/i.test(startMessage)
+          ? `If ${realConfig.label} is already open, close every ${realConfig.label} window/process first, then retry. Existing browser processes often ignore new --remote-debugging-port flags.\n`
+          : '';
       throw new Error(
         `Could not connect to Real ${realConfig.label} at ${realConfig.cdpUrl}.\n` +
         `Start ${realConfig.label} with remote debugging first, then retry:\n` +
         `  ${realConfig.command}\n` +
-        `Original error: ${err.message}`
+          alreadyRunningHint +
+          `Original error: ${originalMessage}\n` +
+          `Auto-start error: ${startMessage}`
       );
+      }
     }
   }
 

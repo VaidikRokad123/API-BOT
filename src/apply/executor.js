@@ -199,6 +199,12 @@ export async function executeAction(page, action, profile) {
           fillValue = profile.credentials?.default?.password || '';
         }
 
+        const currentVal = await page.evaluate(e => e.value, el).catch(() => '');
+        if (currentVal && String(currentVal).trim().toLowerCase() === String(fillValue).trim().toLowerCase()) {
+          console.log(`    → already filled with correct value "${fillValue}" ✓`);
+          break;
+        }
+
         await el.click().catch(() => {});
         await page.evaluate(e => { e.value = ''; }, el);
         await el.type(String(fillValue || ''));
@@ -212,6 +218,15 @@ export async function executeAction(page, action, profile) {
         const tag = await page.evaluate(e => e.tagName.toLowerCase(), el);
 
         if (tag === 'select') {
+          const selectedText = await page.evaluate(s => s.options[s.selectedIndex]?.text?.trim() || '', el).catch(() => '');
+          const selectedValue = await page.evaluate(s => s.value, el).catch(() => '');
+          const target = String(action.value).toLowerCase().trim();
+          if (selectedText.toLowerCase() === target || selectedValue.toLowerCase() === target) {
+            console.log(`    → dropdown already set to "${selectedText}" ✓`);
+            await new Promise(r => setTimeout(r, 600));
+            break;
+          }
+
           const allOpts = (await page.evaluate(s => Array.from(s.options).map(o => ({
             text: o.text.trim(), value: o.value, disabled: o.disabled, hidden: o.hidden,
           })), el)).map(option => ({ ...option, isPlaceholder: isDropdownPlaceholder(option) }));
@@ -219,6 +234,7 @@ export async function executeAction(page, action, profile) {
 
           if (match) {
             await el.select(match.value);
+            await new Promise(r => setTimeout(r, 1200));
             const selected = await page.evaluate(s => ({
               value: s.value,
               text: s.options[s.selectedIndex]?.text?.trim() || '',
@@ -258,6 +274,16 @@ export async function executeAction(page, action, profile) {
 
           // Inspect only the opened widget/listbox. Searching arbitrary divs and
           // spans can click a matching word elsewhere on the application page.
+          const currentText = await page.evaluate(e => (e.innerText || e.value || '').trim(), el).catch(() => '');
+          const target = String(action.value).toLowerCase().trim();
+          const normCurrent = currentText.toLowerCase().replace(/[^a-z0-9]/g, ' ');
+          const normTarget = target.toLowerCase().replace(/[^a-z0-9]/g, ' ');
+          if (normCurrent.includes(normTarget)) {
+            console.log(`    → custom dropdown already set to "${action.value}" ✓`);
+            await new Promise(r => setTimeout(r, 600));
+            break;
+          }
+
           await page.evaluate(e => e.scrollIntoView({ block: 'center', inline: 'nearest' }), el);
           await el.click().catch(() => {});
           await new Promise(r => setTimeout(r, 700));
@@ -501,8 +527,14 @@ export async function executeAction(page, action, profile) {
       case 'check': {
         const el = await findActionElement(page, action.selector);
         if (!el) { console.log('    ⚠ Not found'); break; }
-        if (!await readChoiceState(page, action.selector)) await clickChoiceControl(page, el);
-        await new Promise(resolve => setTimeout(resolve, 800));
+        const isChecked = await readChoiceState(page, action.selector);
+        if (isChecked) {
+          console.log('    → already checked ✓');
+          await new Promise(r => setTimeout(r, 600));
+          break;
+        }
+        await clickChoiceControl(page, el);
+        await new Promise(resolve => setTimeout(resolve, 1200));
         console.log(await readChoiceState(page, action.selector)
           ? '    → Checked ✓'
           : '    ⚠ Choice did not change after click');

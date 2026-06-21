@@ -118,25 +118,60 @@ const COMMANDS = {
   },
 
   '/apply': {
-    usage:   '/apply <url> [--hidden] [--real[=chrome|brave|opera]]',
-    desc:    'AI-driven job application form filler',
-    handler: async (args) => {
-      const hidden = args.includes('--hidden');
-      const realMatch = args.match(/(?:^|\s)--real(?:=(chrome|brave|opera))?(?=\s|$)/i);
-      const browserEngine = realMatch ? `real-${(realMatch[1] || 'chrome').toLowerCase()}` : null;
-      let url = args
-        .replace('--hidden', '')
-        .replace(/(?:^|\s)--real(?:=(chrome|brave|opera))?(?=\s|$)/i, ' ')
-        .trim();
+    usage:   '/apply <url> [--hidden]',
+    desc:    'AI-driven job application form filler (interactive configuration)',
+    handler: async (args, rl) => {
+      let url = args.replace('--hidden', '').trim();
       
       // Strip surrounding quotes if present
       if ((url.startsWith('"') && url.endsWith('"')) || (url.startsWith("'") && url.endsWith("'"))) {
         url = url.slice(1, -1).trim();
       }
 
-      if (!url) { console.log('\n  Usage: /apply <job-url> [--hidden] [--real[=chrome|brave|opera]]\n'); return; }
+      if (!url) { console.log('\n  Usage: /apply <job-url> [--hidden]\n'); return; }
+
+      // 1. Choose AI Browser
+      console.log('\n  Select browser engine for AI (Brain):');
+      const aiEngines = [
+        { key: 'chrome', name: 'Chrome (Separate Profile)' },
+        { key: 'chromium', name: 'Chromium (Bundled)' },
+        { key: 'playwright', name: 'Playwright (ariaSnapshot)' },
+        { key: 'selenium', name: 'Selenium' },
+      ];
+      aiEngines.forEach((e, i) => console.log(`    ${i + 1})  ${e.name}`));
+      console.log();
+      const aiAns = (await new Promise(resolve => rl.question(`  Enter 1–${aiEngines.length} [default: 1]: `, resolve))).trim();
+      const aiIdx = parseInt(aiAns, 10) - 1;
+      const aiEngine = (aiIdx >= 0 && aiIdx < aiEngines.length) ? aiEngines[aiIdx].key : 'chrome';
+
+      // 2. Choose Job App Browser
+      console.log('\n  Select browser engine for Job Application (Hands):');
+      const appEngines = [
+        { key: 'real-chrome', name: 'Real Chrome (connect over CDP)' },
+        { key: 'real-brave', name: 'Real Brave (connect over CDP)' },
+        { key: 'real-opera', name: 'Real Opera (connect over CDP)' },
+        { key: 'chrome', name: 'Chrome (Separate Profile)' },
+        { key: 'chromium', name: 'Chromium (Bundled)' },
+        { key: 'playwright', name: 'Playwright' },
+        { key: 'selenium', name: 'Selenium' },
+      ];
+      appEngines.forEach((e, i) => console.log(`    ${i + 1})  ${e.name}`));
+      console.log();
+      const appAns = (await new Promise(resolve => rl.question(`  Enter 1–${appEngines.length} [default: 1]: `, resolve))).trim();
+      const appIdx = parseInt(appAns, 10) - 1;
+      const appEngine = (appIdx >= 0 && appIdx < appEngines.length) ? appEngines[appIdx].key : 'real-chrome';
+
+      // 3. Ask if they want to research
+      const researchAns = (await new Promise(resolve => rl.question('\n  Do you want to conduct company/job research? (y/n) [default: y]: ', resolve))).trim().toLowerCase();
+      const doResearch = !researchAns.startsWith('n');
+
+      const hidden = args.includes('--hidden');
       const { apply } = await import('./src/apply/index.js');
-      await apply(url, !hidden, { browserEngine });
+      await apply(url, !hidden, {
+        aiEngine,
+        browserEngine: appEngine,
+        doResearch
+      });
     },
   },
 
