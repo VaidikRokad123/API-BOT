@@ -6,7 +6,7 @@ Automate **ChatGPT, Grok, Gemini, Perplexity, or DeepSeek** from the terminal �
 - **Login** — pick a provider and save your session once
 - **Chat** — interactive terminal chat with memory across messages
 - **Ask** — one-shot question, prints the answer, returns
-- **Apply** — researches the company, then AI fills and submits job application forms automatically, **including handling complex multi-step OAuth logins (like Google Sign-In) and CAPTCHAs.**
+- **Apply** — researches the company, then AI fills and submits job application forms automatically, **including handling complex counter/numeric inputs, multi-step OAuth logins (like Google Sign-In), and CAPTCHAs.**
 
 Everything runs from a single interactive console (`node agent.js`). The browser is **visible by default** so you can watch it work.
 
@@ -209,6 +209,7 @@ The agent now includes **advanced automation** to handle the most difficult part
 - **Multi-Step Google Sign-In:** Automatically traverses multi-step Google login pages programmatically (Email → Password → Consent / "I agree" → Account Chooser).
 - **Enforced Google Preference:** When faced with multiple login options (LinkedIn, Microsoft, Google), the AI is strictly instructed to use Google Login.
 - **Smart CAPTCHA Pausing:** If a visible CAPTCHA, Cloudflare check, or Google 2FA verification challenge appears, the agent pauses execution, alerts you in the terminal with a beep, and waits for you to manually solve it in the browser window before pressing `ENTER` to resume.
+- **Form Counter Widgets:** Detects and automates counter numeric inputs (wrapped with `+` and `-` buttons). It first attempts to update values instantly using a native React state updater bypass, and falls back to programmatically clicking the decrement/increment buttons sequentially if typing/setting is disabled.
 - **Invisible Field Filtering:** Automatically detects and ignores "phantom" CAPTCHA tokens or visually hidden elements (e.g. `opacity: 0`, `display: none`, or off-screen) so the AI doesn't get confused and try to fill them.
 - **Automatic JSON Safety Bypass:** Includes a robust quote sanitizer to prevent AI providers from breaking execution when generating complex CSS selectors.
 
@@ -223,6 +224,7 @@ The agent now includes **advanced automation** to handle the most difficult part
 | Signature pad | Draws a cursive signature on canvas |
 | Multi-page forms | Clicks Next and continues |
 | Salary questions | Quotes a market-appropriate figure |
+| **Counter inputs** | React state updating with automated increment/decrement button clicks |
 | **OAuth Logins** | Clicks "Sign in with Google" and handles popup authorization windows |
 | **CAPTCHAs** | Pauses and asks the user to intervene |
 
@@ -232,23 +234,37 @@ Run with `--hidden` to minimize the form browser.
 
 Some job sites hide features or block flows when they detect an automated browser profile. For those sites, start your normal browser with a remote debugging port, then run `/apply` with `--real`.
 
-Chrome:
+#### Starting your browser with remote debugging:
 
-```powershell
-& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
-```
+##### 🌐 Chrome
+* **Windows (PowerShell):**
+  ```powershell
+  & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+  ```
+* **macOS (Terminal):**
+  ```bash
+  /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+  ```
 
-Brave:
+##### 🦁 Brave
+* **Windows (PowerShell):**
+  ```powershell
+  & "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe" --remote-debugging-port=9223
+  ```
+* **macOS (Terminal):**
+  ```bash
+  /Applications/Brave\ Browser.app/Contents/MacOS/Brave\ Browser --remote-debugging-port=9223
+  ```
 
-```powershell
-& "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe" --remote-debugging-port=9223
-```
-
-Opera:
-
-```powershell
-& "$env:LOCALAPPDATA\Programs\Opera\opera.exe" --remote-debugging-port=9224
-```
+##### ⭕ Opera
+* **Windows (PowerShell):**
+  ```powershell
+  & "$env:LOCALAPPDATA\Programs\Opera\opera.exe" --remote-debugging-port=9224
+  ```
+* **macOS (Terminal):**
+  ```bash
+  /Applications/Opera.app/Contents/MacOS/Opera --remote-debugging-port=9224
+  ```
 
 Then inside the agent:
 
