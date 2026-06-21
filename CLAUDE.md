@@ -17,7 +17,7 @@ npx playwright install chromium  # download browser binary (one-time)
 node agent.js                    # start interactive REPL
 ```
 
-Inside the REPL: `/login` `/chat` `/apply <url>` `/ask <q>` `/status` `/help` `/exit`
+Inside the REPL: `/login` `/chat` `/apply <url>` `/apply <url> --real[=chrome|brave|opera]` `/ask <q>` `/browser` `/status` `/help` `/exit`
 
 Create `data/profile.json` from `data/profile.example.json` before using `/apply`.
 

@@ -15,7 +15,7 @@ import { isSubmissionConfirmed } from './completion.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-export async function apply(jobUrl, visible = true) {
+export async function apply(jobUrl, visible = true, options = {}) {
   if (!fs.existsSync(PROFILE_FILE)) {
     console.error(`✗ Profile not found: ${PROFILE_FILE}`);
     console.error('  Copy data/profile.example.json → data/profile.json and fill in your details.');
@@ -41,7 +41,7 @@ export async function apply(jobUrl, visible = true) {
 
   const { browser: aiBrowser, page: aiPage } = await openAiSession(false);
 
-  const appBrowser = await launchBrowser(visible, 'apply');
+  const appBrowser = await launchBrowser(visible, 'apply', { engine: options.browserEngine });
   const appCtx     = await newStealthContext(appBrowser);
   const appPage    = await appCtx.newPage();
 

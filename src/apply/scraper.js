@@ -6,22 +6,42 @@ export async function scrapePageState(page) {
     function getSelector(el) {
       const attrValue = value => String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
         .replace(/\r/g, '\\d ').replace(/\n/g, '\\a ');
+      const attrSelector = (attr, value) => `[${attr}='${attrValue(value)}']`;
+      const unique = selector => {
+        try {
+          const matches = document.querySelectorAll(selector);
+          return matches.length === 1 && matches[0] === el;
+        } catch {
+          return false;
+        }
+      };
+      const cssPath = () => {
+        const parts = []; let cur = el;
+        while (cur && cur !== document.body && parts.length < 5) {
+          let tag = cur.tagName.toLowerCase();
+          const siblings = Array.from(cur.parentElement?.children || []).filter(c => c.tagName === cur.tagName);
+          if (siblings.length > 1) tag += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
+          parts.unshift(tag); cur = cur.parentElement;
+        }
+        return parts.join(' > ');
+      };
+
       // Attribute selectors survive JSON/AI round-trips. A CSS id selector such
       // as #question-1.0 requires a backslash that language models often drop.
       const fieldOwner = el.getAttribute('role') === 'combobox' && el.closest('[data-test-id]');
-      if (fieldOwner) return `[data-test-id='${attrValue(fieldOwner.getAttribute('data-test-id'))}'] [role='combobox']`;
-      if (el.getAttribute('data-test-id')) return `[data-test-id='${attrValue(el.getAttribute('data-test-id'))}']`;
-      if (el.id) return `[id='${attrValue(el.id)}']`;
-      if (el.getAttribute('data-testid')) return `[data-testid='${attrValue(el.getAttribute('data-testid'))}']`;
-      if (el.name) return `[name='${attrValue(el.name)}']`;
-      const parts = []; let cur = el;
-      while (cur && cur !== document.body && parts.length < 4) {
-        let tag = cur.tagName.toLowerCase();
-        const siblings = Array.from(cur.parentElement?.children || []).filter(c => c.tagName === cur.tagName);
-        if (siblings.length > 1) tag += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
-        parts.unshift(tag); cur = cur.parentElement;
+      const candidates = [];
+      if (fieldOwner) candidates.push(`${attrSelector('data-test-id', fieldOwner.getAttribute('data-test-id'))} [role='combobox']`);
+      if (el.getAttribute('data-test-id')) candidates.push(attrSelector('data-test-id', el.getAttribute('data-test-id')));
+      if (el.id) candidates.push(attrSelector('id', el.id));
+      if (el.getAttribute('data-testid')) candidates.push(attrSelector('data-testid', el.getAttribute('data-testid')));
+      if (el.name && el.value && ['radio', 'checkbox'].includes((el.getAttribute('type') || '').toLowerCase())) {
+        candidates.push(`${attrSelector('name', el.name)}${attrSelector('value', el.value)}`);
       }
-      return parts.join(' > ');
+      if (el.name) candidates.push(attrSelector('name', el.name));
+      for (const selector of candidates) {
+        if (unique(selector)) return selector;
+      }
+      return cssPath();
     }
 
     function getLabel(el) {
@@ -46,6 +66,31 @@ export async function scrapePageState(page) {
         cur = cur.parentElement;
       }
       return '';
+    }
+
+    function getFieldHint(el, label) {
+      const clean = value => (value || '').replace(/\s+/g, ' ').trim();
+      const parts = [];
+      const attrs = [
+        ['name', el.getAttribute('name')],
+        ['id', el.getAttribute('id')],
+        ['autocomplete', el.getAttribute('autocomplete')],
+        ['aria', el.getAttribute('aria-label')],
+        ['placeholder', el.getAttribute('placeholder')],
+      ];
+      for (const [key, value] of attrs) {
+        const text = clean(value);
+        if (text && text !== clean(label) && text.length <= 80) parts.push(`${key}:${text}`);
+      }
+      let cur = el.parentElement;
+      for (let i = 0; i < 3 && cur; i++, cur = cur.parentElement) {
+        const text = clean(cur.innerText || cur.textContent);
+        if (text && text.length > clean(label).length && text.length <= 180) {
+          parts.push(`context:${text}`);
+          break;
+        }
+      }
+      return [...new Set(parts)].slice(0, 4).join(' | ');
     }
 
     function getChoiceQuestion(el, optionLabel) {
@@ -143,6 +188,8 @@ export async function scrapePageState(page) {
         currentValue: rawType === 'select' && isPlaceholderOption(selectedOption) ? '' : (el.value || ''),
         placeholder: el.getAttribute('placeholder') || '',
       };
+      const hint = getFieldHint(el, field.label);
+      if (hint) field.hint = hint;
       if (rawType === 'select') {
         field.options = Array.from(el.options).map(o => ({
           text: o.text.trim(), value: o.value,
@@ -179,6 +226,8 @@ export async function scrapePageState(page) {
         currentValue: isPlaceholderOption(el.options[el.selectedIndex]) ? '' : (el.value || ''),
         options: Array.from(el.options).map(o => ({ text: o.text.trim(), value: o.value, isPlaceholder: isPlaceholderOption(o) })),
       });
+      const hint = getFieldHint(el, lbl);
+      if (hint) fields[fields.length - 1].hint = hint;
     });
 
     // Custom dropdowns (non-<select>): Workday/Microsoft/React combobox widgets.
@@ -234,6 +283,8 @@ export async function scrapePageState(page) {
         currentValue: cur,
         options: opts.map(t => ({ text: t, value: t, isPlaceholder: false })),
       });
+      const hint = getFieldHint(el, label);
+      if (hint) fields[fields.length - 1].hint = hint;
       tracked.add(sel);
     });
 

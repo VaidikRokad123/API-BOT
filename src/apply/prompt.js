@@ -186,6 +186,7 @@ Positioning: ${research.positioningStatement?.slice(0, 200)}
     const compact = { label: f.label, type: f.type, selector: f.selector };
     if (f.required) compact.required = true;
     if (f.placeholder) compact.ph = f.placeholder;
+    if (f.hint) compact.hint = f.hint;
     if (f.question) compact.question = f.question;
     if (f.type === 'select' && f.options?.length) {
       // No cap — AI must see ALL options to pick the right one (state dropdown = 50 options)

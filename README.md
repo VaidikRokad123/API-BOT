@@ -72,6 +72,9 @@ Run `node agent.js` and you get an interactive prompt:
 | `/council <question>` | Ask **all** logged-in providers at once, then merge their answers |
 | `/apply <url>` | Research the company + AI-fill the job application form |
 | `/apply <url> --hidden` | Same, but browser minimized |
+| `/apply <url> --real` | Use your already-open real Chrome for the job form |
+| `/apply <url> --real=brave` | Use your already-open real Brave browser for the job form |
+| `/apply <url> --real=opera` | Use your already-open real Opera browser for the job form |
 | `/status` | Show the active provider and whether its session is valid |
 | `/help` | List all commands |
 | `/exit` | Quit |
@@ -224,6 +227,46 @@ The agent now includes **advanced automation** to handle the most difficult part
 | **CAPTCHAs** | Pauses and asks the user to intervene |
 
 Run with `--hidden` to minimize the form browser.
+
+### Real browser mode
+
+Some job sites hide features or block flows when they detect an automated browser profile. For those sites, start your normal browser with a remote debugging port, then run `/apply` with `--real`.
+
+Chrome:
+
+```powershell
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+```
+
+Brave:
+
+```powershell
+& "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe" --remote-debugging-port=9223
+```
+
+Opera:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Opera\opera.exe" --remote-debugging-port=9224
+```
+
+Then inside the agent:
+
+```text
+> /apply https://company.com/jobs/apply/123 --real
+> /apply https://company.com/jobs/apply/123 --real=brave
+> /apply https://company.com/jobs/apply/123 --real=opera
+```
+
+You can also make one of these the default browser:
+
+```text
+> /browser real-chrome
+> /browser real-brave
+> /browser real-opera
+```
+
+Firefox is not listed here because it does not support this same Chrome DevTools attach flow. Use Chrome, Brave, or Opera for real-browser attach mode.
 
 ---
 

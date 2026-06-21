@@ -18,11 +18,33 @@ const BROWSER_PREF_FILE = path.join(__dirname, '..', 'session', 'browser.json');
 // ─── Browser engines ───────────────────────────────────────────────────────
 
 const ENGINES = {
-  chrome:     { name: 'Chrome (Real Installed)' },
+  chrome:     { name: 'Chrome (Real Installed, separate profile)' },
+  'real-chrome': { name: 'Real Chrome (connect over CDP)' },
+  'real-brave':  { name: 'Real Brave (connect over CDP)' },
+  'real-opera':  { name: 'Real Opera (connect over CDP)' },
   chromium:   { name: 'Chromium (Bundled)' },
   selenium:   { name: 'Selenium (Chrome Driver)' },
   playwright: { name: 'Playwright (ariaSnapshot scraping)' },
 };
+
+const REAL_BROWSER_CONFIG = {
+  'real-chrome': {
+    label: 'Chrome',
+    cdpUrl: process.env.REAL_CHROME_CDP_URL || 'http://127.0.0.1:9222',
+    command: '& "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222',
+  },
+  'real-brave': {
+    label: 'Brave',
+    cdpUrl: process.env.REAL_BRAVE_CDP_URL || 'http://127.0.0.1:9223',
+    command: '& "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe" --remote-debugging-port=9223',
+  },
+  'real-opera': {
+    label: 'Opera',
+    cdpUrl: process.env.REAL_OPERA_CDP_URL || 'http://127.0.0.1:9224',
+    command: '& "$env:LOCALAPPDATA\\Programs\\Opera\\opera.exe" --remote-debugging-port=9224',
+  },
+};
+const realBrowserConnections = new WeakSet();
 
 export function readBrowserPref() {
   try {
@@ -31,9 +53,25 @@ export function readBrowserPref() {
       return 'chromium'; // Map Playwright engines to bundled Chromium
     }
     if (data.browser === 'puppeteer') return 'chrome';
+    if (data.browser === 'real') return 'real-chrome';
     if (ENGINES[data.browser]) return data.browser;
   } catch { /* ignore */ }
   return 'chrome'; // default to real Chrome
+}
+
+function markRealBrowserConnection(browser) {
+  realBrowserConnections.add(browser);
+  const disconnect = typeof browser.disconnect === 'function'
+    ? browser.disconnect.bind(browser)
+    : null;
+  if (disconnect) {
+    browser.close = async () => disconnect();
+  }
+  return browser;
+}
+
+function isRealBrowserConnection(browser) {
+  return realBrowserConnections.has(browser);
 }
 
 export function saveBrowserPref(key) {
@@ -54,8 +92,26 @@ const USER_AGENTS = {
 
 // ─── Launch & context ──────────────────────────────────────────────────────
 
-export async function launchBrowser(visible = false, profileSuffix = '') {
-  const pref = readBrowserPref();
+export async function launchBrowser(visible = false, profileSuffix = '', options = {}) {
+  const pref = options.engine || readBrowserPref();
+
+  if (REAL_BROWSER_CONFIG[pref]) {
+    const realConfig = REAL_BROWSER_CONFIG[pref];
+    try {
+      const browser = await puppeteer.connect({
+        browserURL: realConfig.cdpUrl,
+        defaultViewport: null,
+      });
+      return markRealBrowserConnection(browser);
+    } catch (err) {
+      throw new Error(
+        `Could not connect to Real ${realConfig.label} at ${realConfig.cdpUrl}.\n` +
+        `Start ${realConfig.label} with remote debugging first, then retry:\n` +
+        `  ${realConfig.command}\n` +
+        `Original error: ${err.message}`
+      );
+    }
+  }
 
   if (pref === 'selenium') {
     const options = new chrome.Options();
@@ -223,17 +279,20 @@ export async function newStealthContext(browser, storageStatePath = null) {
 
   const ctx = browser.defaultBrowserContext();
   const originalNewPage = ctx.newPage ? ctx.newPage.bind(ctx) : browser.newPage.bind(browser);
+  const realBrowser = isRealBrowserConnection(browser);
 
   // We define target wrapper so it has a newPage method
   const wrapper = {
     newPage: async () => {
       const page = await originalNewPage();
 
-      const pref = readBrowserPref();
-      await page.setUserAgent(USER_AGENTS[pref] || USER_AGENTS.chrome);
-      await page.setViewport({ width: 1280, height: 900 });
+      if (!realBrowser) {
+        const pref = readBrowserPref();
+        await page.setUserAgent(USER_AGENTS[pref] || USER_AGENTS.chrome);
+        await page.setViewport({ width: 1280, height: 900 });
+      }
 
-      if (storageStatePath && fs.existsSync(storageStatePath)) {
+      if (!realBrowser && storageStatePath && fs.existsSync(storageStatePath)) {
         try {
           const state = JSON.parse(fs.readFileSync(storageStatePath, 'utf8'));
 

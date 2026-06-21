@@ -10,6 +10,17 @@ function interactionMarker(kind) {
   return `gpt-auth-${kind}-${Date.now()}-${interactionSequence}`;
 }
 
+function actionSettleMs(type) {
+  switch (type) {
+    case 'select': return 1000;
+    case 'check': return 800;
+    case 'upload': return 1200;
+    case 'click': return 900;
+    case 'signature': return 700;
+    default: return 350;
+  }
+}
+
 async function findActionElement(page, selector) {
   const direct = await page.$(selector).catch(() => null);
   if (direct) return direct;
@@ -163,7 +174,7 @@ export async function executeAction(page, action, profile) {
         if (elType === 'checkbox' || elType === 'radio') {
           console.log(`    ↻ Element is a ${elType}, redirecting to check`);
           if (!await readChoiceState(page, action.selector)) await clickChoiceControl(page, el);
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 800));
           console.log(await readChoiceState(page, action.selector)
             ? '    → Checked ✓'
             : '    ⚠ Choice did not change after click');
@@ -249,7 +260,7 @@ export async function executeAction(page, action, profile) {
           // spans can click a matching word elsewhere on the application page.
           await page.evaluate(e => e.scrollIntoView({ block: 'center', inline: 'nearest' }), el);
           await el.click().catch(() => {});
-          await new Promise(r => setTimeout(r, 350));
+          await new Promise(r => setTimeout(r, 700));
 
           const findVisibleOption = () => {
             const marker = interactionMarker('option');
@@ -381,12 +392,12 @@ export async function executeAction(page, action, profile) {
             await page.keyboard.press('A');
             await page.keyboard.up('Control');
             await el.type(String(action.value ?? ''));
-            await new Promise(r => setTimeout(r, 350));
+            await new Promise(r => setTimeout(r, 700));
             result = await activateOption(await findVisibleOption());
           }
 
           if (result.clicked) {
-            await new Promise(r => setTimeout(r, 400));
+            await new Promise(r => setTimeout(r, 900));
             const actualValues = await readCustomSelection(page, action.selector);
             const verifiedValue = findVerifiedDropdownValue(actualValues, result.text);
             if (verifiedValue) {
@@ -419,33 +430,38 @@ export async function executeAction(page, action, profile) {
           el = await page.evaluateHandle((text) => {
             if (!text) return null;
             const lowerText = text.toLowerCase().trim();
+            const visible = node => {
+              if (!node) return false;
+              const style = getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return style.display !== 'none' && style.visibility !== 'hidden' &&
+                style.opacity !== '0' && rect.width > 0 && rect.height > 0;
+            };
+            const cleanText = node => (node.innerText || node.value || node.getAttribute?.('aria-label') || node.getAttribute?.('title') || '')
+              .replace(/\s+/g, ' ').trim().toLowerCase();
+            const textMatches = node => cleanText(node).includes(lowerText);
 
             // 1. Search standard clickable tags (buttons, links, inputs)
             const standardElements = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
-            const match1 = standardElements.find(b => (b.innerText || b.value || '').toLowerCase().includes(lowerText));
+            const match1 = standardElements.find(b => visible(b) && textMatches(b));
             if (match1) return match1;
 
             // 2. Search role="button" or role="link"
-            const roleElements = Array.from(document.querySelectorAll('[role="button"], [role="link"]'));
-            const match2 = roleElements.find(b => (b.innerText || '').toLowerCase().includes(lowerText));
+            const roleElements = Array.from(document.querySelectorAll('[role="button"], [role="link"], [role="menuitem"], [role="option"]'));
+            const match2 = roleElements.find(b => visible(b) && textMatches(b));
             if (match2) return match2;
 
-            // 3. Search generic elements (div, span, li, p) that might be styled clickable list items
-            const genericElements = Array.from(document.querySelectorAll('div, span, li, p'));
+            // 3. Labels are a safe fallback for hidden checkbox/radio/file inputs.
+            const label = Array.from(document.querySelectorAll('label')).find(l => visible(l) && textMatches(l));
+            if (label) return label;
 
-            // Find most specific (leaf) node containing the text
-            const matches = genericElements.filter(e => {
-              const inner = (e.innerText || '').toLowerCase();
-              return inner.includes(lowerText) && e.children.length === 0;
-            });
-            if (matches.length > 0) return matches[0];
-
-            // Fallback to any element containing the text, sorted by innerText length ascending (smallest container)
-            const allMatches = genericElements.filter(e => (e.innerText || '').toLowerCase().includes(lowerText));
-            if (allMatches.length > 0) {
-              allMatches.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
-              return allMatches[0];
-            }
+            // 4. Last resort: custom interactive elements only. Never click
+            // arbitrary text containers, which often selects the wrong text on
+            // dense ATS forms.
+            const customInteractive = Array.from(document.querySelectorAll('[tabindex], [onclick], [data-testid], [data-test-id], [data-automation-id]'))
+              .filter(e => visible(e) && textMatches(e));
+            customInteractive.sort((a, b) => cleanText(a).length - cleanText(b).length);
+            if (customInteractive.length > 0) return customInteractive[0];
 
             return null;
           }, searchText);
@@ -486,7 +502,7 @@ export async function executeAction(page, action, profile) {
         const el = await findActionElement(page, action.selector);
         if (!el) { console.log('    ⚠ Not found'); break; }
         if (!await readChoiceState(page, action.selector)) await clickChoiceControl(page, el);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 800));
         console.log(await readChoiceState(page, action.selector)
           ? '    → Checked ✓'
           : '    ⚠ Choice did not change after click');
@@ -561,7 +577,7 @@ export async function executeAction(page, action, profile) {
       default: console.log(`    ⚠ Unknown action: ${action.type}`);
     }
 
-    await new Promise(r => setTimeout(r, 250));
+    await new Promise(r => setTimeout(r, actionSettleMs(action.type)));
   } catch (e) {
     console.log(`    ✗ ${e.message.split('\n')[0]}`);
   }

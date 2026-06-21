@@ -118,20 +118,25 @@ const COMMANDS = {
   },
 
   '/apply': {
-    usage:   '/apply <url> [--hidden]',
+    usage:   '/apply <url> [--hidden] [--real[=chrome|brave|opera]]',
     desc:    'AI-driven job application form filler',
     handler: async (args) => {
       const hidden = args.includes('--hidden');
-      let url      = args.replace('--hidden', '').trim();
+      const realMatch = args.match(/(?:^|\s)--real(?:=(chrome|brave|opera))?(?=\s|$)/i);
+      const browserEngine = realMatch ? `real-${(realMatch[1] || 'chrome').toLowerCase()}` : null;
+      let url = args
+        .replace('--hidden', '')
+        .replace(/(?:^|\s)--real(?:=(chrome|brave|opera))?(?=\s|$)/i, ' ')
+        .trim();
       
       // Strip surrounding quotes if present
       if ((url.startsWith('"') && url.endsWith('"')) || (url.startsWith("'") && url.endsWith("'"))) {
         url = url.slice(1, -1).trim();
       }
 
-      if (!url) { console.log('\n  Usage: /apply <job-url> [--hidden]\n'); return; }
+      if (!url) { console.log('\n  Usage: /apply <job-url> [--hidden] [--real[=chrome|brave|opera]]\n'); return; }
       const { apply } = await import('./src/apply/index.js');
-      await apply(url, !hidden);
+      await apply(url, !hidden, { browserEngine });
     },
   },
 
@@ -145,8 +150,8 @@ const COMMANDS = {
   },
 
   '/browser': {
-    usage:   '/browser [chrome|chromium|selenium|playwright]',
-    desc:    'Switch browser engine (Playwright enables ariaSnapshot scraping)',
+    usage:   '/browser [chrome|chromium|selenium|playwright|real-chrome|real-brave|real-opera]',
+    desc:    'Switch browser engine',
     handler: async (args, rl) => {
       const engines = getEngineList();
       const current = readBrowserPref();
