@@ -62,12 +62,15 @@ export class ArtifactRun {
     fs.writeFileSync(this.tracePath, JSON.stringify(this.traceData, null, 2));
   }
 
-  writeReport(history, verdict) {
+  writeReport(history, verdict, agentReport = '') {
     let report = `# Subagent Run Report - ${this.runId}\n\n`;
     report += `**Verdict:** ${verdict.passed ? '✅ PASSED' : '❌ FAILED'}\n`;
     report += `**Reason:** ${verdict.reason || 'No reason provided.'}\n`;
     if (verdict.evidence) {
       report += `**Evidence:** ${verdict.evidence}\n`;
+    }
+    if (agentReport) {
+      report += `\n---\n\n## Result / Answer\n\n${agentReport}\n`;
     }
     report += `\n---\n\n## Step History\n\n`;
 

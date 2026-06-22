@@ -17,7 +17,9 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
     return compact;
   });
 
-  const compactButtons = (obs.buttons || []).map(b => ({
+  const compactFieldsCapped = compactFields.slice(0, 60);
+
+  const compactButtons = (obs.buttons || []).slice(0, 60).map(b => ({
     text: b.text,
     selector: b.selector,
     disabled: b.disabled || false
@@ -124,10 +126,15 @@ GUIDELINES FOR FORM FILLING:
     guidelinesBlock = `
 GUIDELINES:
 1. Return exactly ONE tool call in the JSON format specified below.
-2. Selectors MUST be chosen exactly from the FIELDS/BUTTONS list below. Do not invent selectors.
-3. For elements inside iframes, use the selectors containing " >>> " (frame-piercing) exactly as they are scraped.
+2. Selectors MUST be chosen exactly from the FIELDS/BUTTONS list. Do not invent selectors.
+3. For elements inside iframes, use selectors containing " >>> " (frame-piercing) exactly as scraped.
 4. If an OAuth/Google login window pops up, use the "handle_login" tool immediately.
-5. If you believe the task is fully completed, use the "finish" tool with status "done".
+5. The page's currently visible text is in CURRENT OBSERVATION → Text. READ IT — most "find / list / extract / summarize" tasks are answered directly from that text, no clicking needed.
+6. For long pages (feeds, search results, lists, articles): the Text shows only what is currently loaded. Use "scroll" (direction "down") then re-read on the next step to load MORE items. Repeat until you have collected enough, then finish.
+7. Collect findings as you go and keep them in your "reasoning". Do NOT give up just because the first screen shows only one item — scroll and keep reading.
+8. Only use "screenshot" when the task truly needs visual inspection; you cannot read pixels from a screenshot, so prefer the Text.
+9. When the task is complete, call the "finish" tool with status "done" and put your FULL compiled answer/report (the actual deliverable: items, roles, links, summary) in args.report as a string. This text becomes the run's report — make it complete and self-contained.
+10. Use status "blocked" ONLY if genuinely unable to proceed after scrolling/reading (e.g. login wall). Explain what blocked you in args.report.
 `;
   }
 
@@ -145,10 +152,10 @@ ${historyBlock}
 CURRENT OBSERVATION:
 URL: ${obs.url}
 Title: ${obs.title}
-Text: ${obs.pageText?.slice(0, 1500)}
+Text: ${obs.pageText?.slice(0, 8000)}
 
 FIELDS:
-${JSON.stringify(compactFields)}
+${JSON.stringify(compactFieldsCapped)}
 
 BUTTONS:
 ${JSON.stringify(compactButtons)}
@@ -156,5 +163,6 @@ ${ariaBlock}
 ${consoleBlock}
 FORMAT (Return ONLY raw JSON - no markdown wrapper, no explanation):
 {"reasoning":"...","tool":"navigate|click|click_blank|fill|select|check|upload|scroll|hover|press|wait|read|screenshot|extract|handle_login|signature|fill_form|finish","args":{...},"status":"continue|done|blocked"}
+When finishing an extraction/report task, put the full deliverable in args.report, e.g. {"reasoning":"...","tool":"finish","args":{"report":"1. Role — Company — link ..."},"status":"done"}
 `;
 }

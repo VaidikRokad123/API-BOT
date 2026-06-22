@@ -89,24 +89,63 @@ export const TOOL_REGISTRY = {
     }
   },
   scroll: {
-    description: 'Scroll the page vertically or scroll an element into view',
-    params: { direction: 'string?', selector: 'string?' },
+    description: 'Scroll the page vertically (direction "down"/"up") or scroll an element into view',
+    params: { direction: 'string?', selector: 'string?', amount: 'number?' },
     run: async (page, args) => {
       if (args.selector) {
         const el = await findActionElement(page, args.selector);
         if (el) {
           await page.evaluate(e => e.scrollIntoView({ block: 'center' }), el);
+          await new Promise(r => setTimeout(r, 1200));
           return `Scrolled element ${args.selector} into view`;
         }
         return `Element ${args.selector} not found to scroll`;
       }
-      const dir = args.direction || 'down';
-      if (dir === 'down') {
-        await page.evaluate(() => window.scrollBy(0, window.innerHeight * 0.8));
-      } else {
-        await page.evaluate(() => window.scrollBy(0, -window.innerHeight * 0.8));
-      }
-      return `Scrolled page ${dir}`;
+
+      const dir = (args.direction || 'down').toLowerCase();
+      const sign = dir === 'up' ? -1 : 1;
+      const amount = Number(args.amount) > 0 ? Number(args.amount) : 1000;
+
+      // 1. Real wheel event at the viewport centre. Fires the wheel events that
+      //    infinite-scroll listeners need, and scrolls whatever container sits
+      //    under the cursor (window OR an inner overflow div).
+      let wheeled = false;
+      try {
+        const vp = await page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
+        await page.mouse.move(Math.floor(vp.w / 2), Math.floor(vp.h / 2));
+        if (page.mouse?.wheel) {
+          await page.mouse.wheel({ deltaY: sign * amount });
+          wheeled = true;
+        }
+      } catch { /* fall through to DOM scroll */ }
+
+      // 2. DOM fallback: many SPAs (LinkedIn, etc.) scroll an inner element, not
+      //    window — so window.scrollBy is a no-op. Find the element that actually
+      //    scrolls and move it; verify the position changed.
+      const moved = await page.evaluate((s, amt) => {
+        const before = window.scrollY;
+        const candidates = [document.scrollingElement, document.documentElement, document.body];
+        for (const el of document.querySelectorAll('main, [role="main"], div, section')) {
+          const st = getComputedStyle(el);
+          if (/(auto|scroll)/.test(st.overflowY) && el.scrollHeight > el.clientHeight + 40) {
+            candidates.push(el);
+          }
+        }
+        for (const el of candidates) {
+          if (!el) continue;
+          const prev = el.scrollTop;
+          el.scrollTop += s * amt;
+          if (el.scrollTop !== prev) return true;
+        }
+        window.scrollBy(0, s * amt);
+        return window.scrollY !== before;
+      }, sign, amount).catch(() => false);
+
+      // Wait for lazy-loaded content before the next observation.
+      await new Promise(r => setTimeout(r, 1500));
+
+      if (!wheeled && !moved) return `Tried to scroll ${dir} but the page did not move (content may already be fully loaded or at the edge)`;
+      return `Scrolled ${dir} (wheel:${wheeled}, dom:${moved}); waited for lazy content`;
     }
   },
   hover: {
@@ -148,10 +187,11 @@ export const TOOL_REGISTRY = {
     }
   },
   read: {
-    description: 'Read the page state',
+    description: 'Re-read the page. The full visible text is returned in the next OBSERVATION → Text. Use after scrolling to capture newly loaded content.',
     params: {},
-    run: async () => {
-      return 'State read successfully';
+    run: async (page) => {
+      const len = await page.evaluate(() => (document.body?.innerText || '').length).catch(() => 0);
+      return `Page re-read — ${len} chars of text now available in OBSERVATION → Text.`;
     }
   },
   screenshot: {
@@ -172,7 +212,7 @@ export const TOOL_REGISTRY = {
       const el = await findActionElement(page, args.selector || 'body');
       if (el) {
         const text = await page.evaluate(e => e.innerText || e.textContent, el);
-        return `Extracted text: ${String(text).slice(0, 500)}`;
+        return `Extracted text: ${String(text).slice(0, 4000)}`;
       }
       return `Element ${args.selector || 'body'} not found`;
     }

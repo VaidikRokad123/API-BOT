@@ -112,6 +112,9 @@ export class PlaywrightPage {
       click: (x, y, opts = {}) => this.page.mouse.click(x, y, opts),
       down: (opts = {}) => this.page.mouse.down(opts),
       up: (opts = {}) => this.page.mouse.up(opts),
+      // Puppeteer-shaped signature ({deltaX,deltaY}) so the subagent scroll tool
+      // is uniform across engines; Playwright's native wheel takes (dx, dy).
+      wheel: (opts = {}) => this.page.mouse.wheel(opts.deltaX || 0, opts.deltaY || 0),
     };
   }
 

@@ -119,6 +119,7 @@ Return ONLY the JSON, nothing else.`;
   };
 
   const history = [];
+  let finishPayload = null;
 
   try {
     for (let step = 1; step <= maxSteps; step++) {
@@ -163,7 +164,10 @@ Return ONLY the JSON, nothing else.`;
       run.appendConsole(consoleBuffer.getBuffer());
       consoleBuffer.clear();
 
-      const prompt = buildSubagentPrompt(task, observation, history, ctx.profile, ctx.research);
+      // Only inject the candidate profile + form-filling guidelines for actual
+      // application runs. Generic /browser tasks get the task-neutral prompt.
+      const promptProfile = options.isApply ? ctx.profile : null;
+      const prompt = buildSubagentPrompt(task, observation, history, promptProfile, ctx.research);
       console.log('  🤖 Prompting subagent brain...');
       
       let raw;
@@ -194,6 +198,9 @@ Return ONLY the JSON, nothing else.`;
       console.log(`  📋 Action: ${action.tool} (status: ${action.status})`);
 
       if (action.tool === 'finish' || action.status === 'done') {
+        // Capture the agent's compiled answer/report so it survives into the
+        // verdict + report (extraction/report tasks live or die on this).
+        finishPayload = action.args || {};
         console.log('  ✓ Task marked completed by subagent.');
         break;
       }
@@ -234,13 +241,20 @@ Return ONLY the JSON, nothing else.`;
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    const verdict = await verifyGoal(page, task, aiPage, consoleBuffer);
+    const agentReport = finishPayload
+      ? (finishPayload.report || finishPayload.result || finishPayload.summary || finishPayload.answer || '')
+      : '';
+
+    const verdict = await verifyGoal(page, task, aiPage, consoleBuffer, agentReport);
     console.log(`\n========================================`);
     console.log(`  VERDICT: ${verdict.passed ? '✅ PASSED' : '❌ FAILED'}`);
     console.log(`  Reason: ${verdict.reason}`);
+    if (agentReport) {
+      console.log(`\n  📄 Subagent answer:\n${String(agentReport).slice(0, 1200)}`);
+    }
     console.log(`========================================`);
 
-    run.writeReport(history, verdict);
+    run.writeReport(history, verdict, agentReport);
 
     return {
       runId: run.runId,
