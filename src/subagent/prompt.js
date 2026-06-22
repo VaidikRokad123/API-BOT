@@ -155,6 +155,6 @@ ${JSON.stringify(compactButtons)}
 ${ariaBlock}
 ${consoleBlock}
 FORMAT (Return ONLY raw JSON - no markdown wrapper, no explanation):
-{"reasoning":"...","tool":"navigate|click|fill|select|check|upload|scroll|hover|press|wait|read|screenshot|extract|handle_login|signature|fill_form|finish","args":{...},"status":"continue|done|blocked"}
+{"reasoning":"...","tool":"navigate|click|click_blank|fill|select|check|upload|scroll|hover|press|wait|read|screenshot|extract|handle_login|signature|fill_form|finish","args":{...},"status":"continue|done|blocked"}
 `;
 }

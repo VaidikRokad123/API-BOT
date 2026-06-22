@@ -46,6 +46,16 @@ export const TOOL_REGISTRY = {
       return `Clicked element ${args.selector}`;
     }
   },
+  click_blank: {
+    description: 'Click on a blank/neutral area of the page (default coordinates 10, 10) to dismiss active overlays, dropdowns, popups, or remove focus from inputs',
+    params: { x: 'number?', y: 'number?' },
+    run: async (page, args) => {
+      const x = args.x !== undefined ? args.x : 10;
+      const y = args.y !== undefined ? args.y : 10;
+      await page.mouse.click(x, y);
+      return `Clicked at coordinates (${x}, ${y}) to clear focus/dismiss overlays`;
+    }
+  },
   fill: {
     description: 'Fill a text input with a value',
     params: { selector: 'string', value: 'string' },
