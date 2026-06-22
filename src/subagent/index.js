@@ -10,6 +10,11 @@ import { buildSubagentPrompt } from './prompt.js';
 import { TOOL_REGISTRY } from './tools.js';
 import { verifyGoal } from './verify.js';
 import { sanitizeGptJson } from '../apply/prompt.js';
+import { scrapePageState, installClickListenerTracker } from '../apply/scraper.js';
+import { autoHandleSpecials } from '../apply/executor.js';
+import { detectCaptcha, pauseForUser } from '../apply/captcha.js';
+import { isSubmissionConfirmed } from '../apply/completion.js';
+import { researchJob } from '../apply/research.js';
 
 export async function runBrowserSubagent(task, options = {}) {
   const visible = options.hidden !== true;
@@ -39,8 +44,74 @@ export async function runBrowserSubagent(task, options = {}) {
 
   const consoleBuffer = attachConsoleCapture(page);
 
+  // Hook click listeners BEFORE navigation so custom (React/Vue) buttons are detected.
+  await installClickListenerTracker(page);
+
+  let research = null;
+  if (options.jobUrl) {
+    console.log(`  Navigating to initial job URL: ${options.jobUrl}`);
+    await page.goto(options.jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await new Promise(r => setTimeout(r, 3000));
+
+    const initialPageText = await page.evaluate(() => document.body.innerText);
+
+    console.log('  🔍 Analyzing if this is a landing page or the actual application form...');
+    const links = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('a')).map(a => ({
+        text: a.innerText.trim(),
+        href: a.href
+      })).filter(l => l.href && l.href.startsWith('http') && l.text.length > 0);
+    });
+
+    const linkFinderPrompt = `You are an assistant helping to navigate to a job application form.
+We are on the page: ${options.jobUrl}
+
+Here is a snippet of text from the page:
+${initialPageText.slice(0, 2000)}
+
+Here are some links found on the page (showing text and href):
+${links.slice(0, 100).map(l => `- "${l.text}": ${l.href}`).join('\n')}
+
+Identify if this page is already the application form (e.g. it has inputs for name, email, resume upload, etc.), or if we need to click a link to go to the actual application form (e.g. "Apply", "Apply Now", "Apply on Company Site").
+
+Return your response in this exact JSON format:
+{
+  "isForm": true, // true if this page is already the form, false if we need to click a link
+  "targetUrl": "ALREADY_FORM" // "ALREADY_FORM" if this page is the form, or the exact href URL to navigate to
+}
+Return ONLY the JSON, nothing else.`;
+
+    const rawDecision = await sendMessage(aiPage, linkFinderPrompt);
+    let decision = { isForm: true, targetUrl: 'ALREADY_FORM' };
+    try {
+      decision = sanitizeGptJson(rawDecision);
+    } catch (e) {
+      // Best effort fallback
+    }
+
+    if (!decision.isForm && decision.targetUrl && decision.targetUrl !== 'ALREADY_FORM') {
+      console.log(`  ↪ AI identified main application link: ${decision.targetUrl}`);
+      console.log('  Navigating to actual application form...');
+      await page.goto(decision.targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await new Promise(r => setTimeout(r, 3000));
+    } else {
+      console.log('  ✓ AI identified this page as the active application form.');
+    }
+
+    const pageText = await page.evaluate(() => document.body.innerText);
+    const applicationUrl = page.url ? await page.url() : options.jobUrl;
+    
+    if (options.doResearch !== false) {
+      console.log('  🔍 Conducting job/company research...');
+      research = await researchJob(aiPage, applicationUrl, pageText, profile);
+    } else {
+      console.log('  ⚡ Skipping job/company research as requested.');
+    }
+  }
+
   const ctx = {
     profile,
+    research,
     browser: appBrowser,
     aiPage,
     run,
@@ -54,6 +125,35 @@ export async function runBrowserSubagent(task, options = {}) {
       ctx.step = step;
       console.log(`\n  --- Step ${step} ---`);
 
+      // CAPTCHA check
+      const hasCaptcha = await detectCaptcha(page).catch(() => false);
+      if (hasCaptcha) {
+        console.log('\n⚠️  [PAUSE] CAPTCHA, verification, or robot check detected!');
+        console.log('   Please solve the verification in the browser window.');
+        console.log('   Once solved, press ENTER in this terminal to resume...');
+        await pauseForUser('   Press ENTER to resume > ');
+        step--; // retry this step
+        continue;
+      }
+
+      // Direct success confirmation check (apply only)
+      if (options.isApply) {
+        const pageState = await scrapePageState(page).catch(() => null);
+        if (pageState && isSubmissionConfirmed(pageState)) {
+          await page.screenshot({ path: path.join(process.cwd(), 'application_done.png'), fullPage: true }).catch(() => {});
+          console.log('\n✅ Application submission confirmed! Screenshot → application_done.png\n');
+          break;
+        }
+      }
+
+      // Auto handle specials (apply only)
+      if (options.isApply && ctx.profile && Object.keys(ctx.profile).length) {
+        const pageState = await scrapePageState(page).catch(() => null);
+        if (pageState) {
+          await autoHandleSpecials(page, pageState, ctx.profile);
+        }
+      }
+
       const observation = await buildObservation(page, consoleBuffer);
       
       // Save screenshot for the step
@@ -63,7 +163,7 @@ export async function runBrowserSubagent(task, options = {}) {
       run.appendConsole(consoleBuffer.getBuffer());
       consoleBuffer.clear();
 
-      const prompt = buildSubagentPrompt(task, observation, history);
+      const prompt = buildSubagentPrompt(task, observation, history, ctx.profile, ctx.research);
       console.log('  🤖 Prompting subagent brain...');
       
       let raw;

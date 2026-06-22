@@ -174,5 +174,29 @@ export const TOOL_REGISTRY = {
       const handled = await detectAndHandlePopup(ctx.browser, page, ctx.profile || {}, ctx.aiPage);
       return handled ? 'OAuth popup handled successfully' : 'No active OAuth popup detected';
     }
+  },
+  signature: {
+    description: 'Draw a signature on a canvas element',
+    params: { selector: 'string' },
+    run: async (page, args, ctx) => {
+      await executeAction(page, { type: 'signature', selector: args.selector }, ctx.profile || {});
+      return `Drew signature on canvas ${args.selector}`;
+    }
+  },
+  fill_form: {
+    description: 'Fill multiple form fields (inputs, dropdowns, checkboxes, radios, canvas signatures, uploads) at once on the current page. Do not include next/submit button clicks here.',
+    params: {
+      actions: 'array of {type: "fill|select|check|upload|signature", selector: "string", value: "string?"}'
+    },
+    run: async (page, args, ctx) => {
+      if (!args.actions || !Array.isArray(args.actions)) {
+        return 'No actions provided for fill_form';
+      }
+      console.log(`\n  Executing ${args.actions.length} form action(s):`);
+      for (const act of args.actions) {
+        await executeAction(page, act, ctx.profile || {});
+      }
+      return `Executed ${args.actions.length} form actions`;
+    }
   }
 };
