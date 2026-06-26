@@ -8,6 +8,7 @@ import { executeAction } from './executor.js';
 import { sendMessage } from '../ai.js';
 import { sanitizeGptJson } from './prompt.js';
 import { detectCaptcha, pauseForUser } from './captcha.js';
+import { resolveCredential } from '../credentials.js';
 
 const LOGIN_URL_PATTERNS = [
   'accounts.google.com',
@@ -86,7 +87,7 @@ export async function autoHandleGoogleLogin(page, profile) {
   if (!url || !url.includes('accounts.google.com')) return false;
 
   console.log('    [Auto-Login] Checking Google Sign-In page state...');
-  const googleEmail = profile.credentials?.google?.username || profile.email;
+  const googleEmail = resolveCredential('google', 'username', profile) || profile.email;
   const pageText = await page.evaluate(() => document.body.innerText).catch(() => '');
 
   // 1. Verification/2FA challenges — pause immediately, user must solve
@@ -160,9 +161,9 @@ export async function autoHandleGoogleLogin(page, profile) {
   if (passwordInput) {
     const val = await page.evaluate(e => e.value, passwordInput).catch(() => '');
     if (!val) {
-      const googlePassword = profile.credentials?.google?.password || '';
+      const googlePassword = resolveCredential('google', 'password', profile) || '';
       if (!googlePassword) {
-        console.log('    ⚠ No Google password in profile.credentials.google.password');
+        console.log('    ⚠ No Google password — set credentials.google.passwordRef (env:GOOGLE_PASSWORD) or use persistent browser profile');
         return false;
       }
       console.log('    [Auto-Login] Entering Google password...');

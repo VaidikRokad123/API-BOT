@@ -54,7 +54,7 @@ Thumbs.db
 dist/
 build/
 runs/
-reop/
+repo/
 
 # ── Subagent runs & Auto-learned skills ───────────────────────────────────────
 subagent_runs/

@@ -16,7 +16,7 @@ import { validateAiAction } from '../apply/browser-subagent.js';
 import { verdictWithFailureReason } from '../apply/failure-taxonomy.js';
 import { createSubagentFsm } from './fsm.js';
 import { createRunLogger } from './logger.js';
-import { loadDomainSkill, saveDomainSkill } from './domain-skills.js';
+import { loadDomainSkill, saveDomainSkill, prepareDomainSkillForReplay, attachElementHashToHistoryEntry } from './domain-skills.js';
 import { checkDomain, wrapContent, scanContent } from './idpi.js';
 
 const DEFAULT_ALLOWED_DOMAINS = [
@@ -229,7 +229,10 @@ Return ONLY this JSON:
       consoleBuffer.clear();
 
       const promptProfile = options.isApply ? ctx.profile : null;
-      const prompt = buildSubagentPrompt(task, observation, history, promptProfile, ctx.research, domainSkill);
+      const replaySkill = domainSkill
+        ? prepareDomainSkillForReplay(domainSkill, observation, history)
+        : null;
+      const prompt = buildSubagentPrompt(task, observation, history, promptProfile, ctx.research, replaySkill);
       logger.info({ step }, 'prompt_subagent_brain');
 
       let action;
@@ -272,13 +275,13 @@ Return ONLY this JSON:
         logger.error({ err: err.message, tool: action.tool }, 'tool_failed');
       }
 
-      history.push({
+      history.push(attachElementHashToHistoryEntry({
         step,
         tool: action.tool,
         args: action.args || {},
         result,
         reasoning: action.reasoning
-      });
+      }, observation));
       run.writeStepTrace(step, action, observation, result);
 
       if (isSubmitAction(action)) {

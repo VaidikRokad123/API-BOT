@@ -4,6 +4,8 @@ import readline from 'readline';
 import { z } from 'zod';
 
 import { PERMISSIONS_FILE } from '../config.js';
+import { credentialFillLogMessage, isCredentialToken, resolveFillValue } from '../credentials.js';
+import { computeElementHash } from '../subagent/element-hash.js';
 const DEFAULT_PERMISSIONS = {
   fill_text_field: 'allow',
   select_dropdown: 'allow',
@@ -267,6 +269,19 @@ export async function perceive(page, consoleBuffer = null) {
       if (el.isContentEditable) return 'textbox';
       return 'generic';
     };
+    const sectionContext = el => {
+      const fieldset = el.closest('fieldset');
+      if (fieldset) {
+        const legend = fieldset.querySelector('legend');
+        if (legend) return text(legend.innerText);
+      }
+      let node = el.parentElement;
+      for (let i = 0; i < 5 && node && node !== document.body; i++, node = node.parentElement) {
+        const heading = node.querySelector(':scope > h1, :scope > h2, :scope > h3, :scope > h4, [role="heading"]');
+        if (heading && text(heading.innerText)) return text(heading.innerText);
+      }
+      return '';
+    };
     const accessibleName = el => {
       let name = text(
         el.getAttribute('aria-label') ||
@@ -336,9 +351,12 @@ export async function perceive(page, consoleBuffer = null) {
       const value = nativeSelect
         ? text(el.selectedOptions?.[0]?.textContent || el.value)
         : (el.isContentEditable ? text(el.innerText) : text(el.value || el.getAttribute('aria-valuetext') || ''));
+      const name = accessibleName(el);
+      const context = sectionContext(el);
       elements.push({
         role,
-        name: accessibleName(el),
+        name,
+        context,
         ref: el.dataset.gptAuthRef,
         selector: cssSelectorFor(el.dataset.gptAuthRef),
         tag,
@@ -361,15 +379,20 @@ export async function perceive(page, consoleBuffer = null) {
     };
   }).catch(() => ({ text: '', elements: [] }));
 
-  const elementList = renderElementList(extracted.elements);
+  const elementsWithHash = extracted.elements.map(el => ({
+    ...el,
+    elementHash: computeElementHash(el)
+  }));
+
+  const elementList = renderElementList(elementsWithHash);
   return {
     url: pageUrl(page),
     title: await pageTitle(page),
     pageText: extracted.text,
     ariaSnapshot: ariaSnapshot ? String(ariaSnapshot).slice(0, 8000) : null,
     elementList,
-    elements: extracted.elements,
-    fields: extracted.elements
+    elements: elementsWithHash,
+    fields: elementsWithHash
       .filter(e => ['textbox', 'combobox', 'listbox', 'checkbox', 'radio', 'button', 'slider', 'canvas'].includes(e.role))
       .map(e => ({
         label: e.name,
@@ -397,6 +420,7 @@ function renderElementList(elements = []) {
       `role=${e.role}`,
       `name=${quote(e.name)}`,
       `ref=${e.ref}`,
+      `hash=${e.elementHash || ''}`,
       `selector=${quote(e.selector)}`
     ];
     if (e.placeholder) parts.push(`placeholder=${quote(e.placeholder)}`);
@@ -593,9 +617,9 @@ export async function waitForStable(page, { quietMs = 500, timeoutMs = 5000 } = 
 }
 
 function resolveProfileValue(value, profile = {}) {
-  const token = String(value || '').toLowerCase().replace(/_/g, '');
-  if (token === 'googleemail' || token === 'defaultusername') return profile.email || '';
-  if (token === 'googlepassword' || token === 'defaultpassword') return '';
+  if (isCredentialToken(value)) {
+    return resolveFillValue(value, profile).value;
+  }
   return value;
 }
 
@@ -613,13 +637,18 @@ export async function act(page, rawAction, ctx = {}) {
 
   switch (action.type) {
     case 'fill': {
-      const value = resolveProfileValue(action.value, ctx.profile);
+      const resolved = isCredentialToken(action.value)
+        ? resolveFillValue(action.value, ctx.profile)
+        : { value: resolveProfileValue(action.value, ctx.profile), isSecret: false, credentialFilled: false };
+      const value = resolved.value;
       if (info.type === 'checkbox' || info.type === 'radio' || info.role === 'checkbox' || info.role === 'radio') {
         if (!await readChoiceState(page, el)) await clickElement(page, el);
         result = 'Checked choice while handling fill action';
       } else {
         await focusAndType(page, el, value);
-        result = `Typed ${String(value ?? '').length} character(s)`;
+        result = resolved.credentialFilled && resolved.isSecret
+          ? `[credential:${resolved.slot}.${resolved.field} filled]`
+          : `Typed ${String(value ?? '').length} character(s)`;
       }
       break;
     }

@@ -1,3 +1,4 @@
+import { redactCredentialArgs } from '../credentials.js';
 import { attributeSelector, idFromLegacySelector } from '../apply/selector.js';
 import { perceive } from '../apply/browser-subagent.js';
 import { act as executeSubagentAction, enforceActionPermission, waitForStable } from '../apply/browser-subagent.js';
@@ -63,7 +64,8 @@ export const TOOL_REGISTRY = {
     params: { selector: 'string?', ref: 'string?', value: 'string' },
     run: async (page, args, ctx) => {
       await executeSubagentAction(page, { type: 'fill', selector: args.selector, ref: args.ref, value: args.value }, ctx);
-      return `Filled input ${args.selector || args.ref} with "${args.value}"`;
+      const safeArgs = redactCredentialArgs(args);
+      return `Filled input ${safeArgs.selector || safeArgs.ref}${safeArgs.value === '[credential]' ? ' with [credential]' : ''}`;
     }
   },
   select: {

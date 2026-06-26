@@ -50,7 +50,7 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
   let candidateBlock = '';
   let guidelinesBlock = '';
   const domainSkillBlock = domainSkill
-    ? `\nKNOWN DOMAIN SKILL FOR THIS HOST:\n${JSON.stringify(domainSkill).slice(0, 4000)}\nPrefer this working selector/ref strategy when it still matches the current page.\n`
+    ? `\nKNOWN DOMAIN SKILL FOR THIS HOST (hash-validated — elementHash targets only; 0 or 2+ matches fall back to fresh reasoning):\n${JSON.stringify(domainSkill).slice(0, 4000)}\nPrefer elementHash + ref from ELEMENT LIST when replaying cached actions.\n`
     : '';
 
   if (profile) {

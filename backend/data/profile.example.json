@@ -45,6 +45,18 @@
   "resumeLastUpdated": "2026-06-19",
   "resumePdfPath": "D:\\path\\to\\your\\resume.pdf",
   "resumePdfLastUpdated": "2026-06-19",
+  "credentials": {
+    "google": {
+      "username": "you@gmail.com",
+      "passwordRef": "env:GOOGLE_PASSWORD",
+      "_note": "Prefer persistent browser profile for Google OAuth — password is fallback only"
+    },
+    "default": {
+      "usernameRef": "profile:email",
+      "passwordRef": "env:DEFAULT_SITE_PASSWORD",
+      "_note": "Generic site logins where OAuth/profile reuse is unavailable. Refs: env:VAR or profile:dotted.path"
+    }
+  },
   "coverLetterStyle": "professional and concise, highlight enthusiasm for the company's mission, keep under 300 words",
   "workAuthorization": "Yes, I am authorized to work",
   "requiresSponsorship": "No",

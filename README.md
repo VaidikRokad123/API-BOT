@@ -33,6 +33,8 @@ Everything runs from a single interactive console (`node agent.js`). The browser
 - [Permissions System](#permissions-system)
 - [Application Ledger](#application-ledger)
 - [Domain Skills (Auto-Learning)](#domain-skills-auto-learning)
+- [Indirect Prompt Injection Defense (IDPI)](#indirect-prompt-injection-defense-idpi)
+- [AutoSolver & Challenge Heuristics](#autosolver--challenge-heuristics)
 - [Project Structure](#project-structure)
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
@@ -686,6 +688,31 @@ Example domain skill:
   "quirks": ["custom_dropdown_handling"]
 }
 ```
+
+---
+
+## Indirect Prompt Injection Defense (IDPI)
+
+The Browser Subagent includes built-in safeguards to prevent external webpages (such as untrusted job descriptions or compromised domains) from executing **Indirect Prompt Injection** attacks (e.g. attempting to override the agent's instructions, leak system prompts, or exfiltrate session data).
+
+### Defense Mechanisms
+
+1. **Domain Whitelisting**: Restricts browser navigation to an allowed list of domains (such as target AI providers or specific job sites). Attempts to navigate to non-approved domains are flagged and can be configured to block in strict mode.
+2. **Content Scanning**: Analyzes scraped page content against standard injection payload signatures (such as *"ignore previous instructions"*, *"reveal your system prompt"*, *"send cookies"*) before it is sent to the LLM.
+3. **Delimiter Wrapping & Advisory**: Wraps untrusted webpage content inside explicit boundaries (`<untrusted_web_content url="..."> ... </untrusted_web_content>`) and prepends a safety warning. Delimiters inside the scraped text are automatically sanitized (replacing `</untrusted_web_content>` with `< /untrusted_web_content>`) to prevent the LLM from escaping the boundary.
+
+---
+
+## AutoSolver & Challenge Heuristics
+
+The agent features an upgraded, heuristics-based anti-bot detection engine designed to identify browser verification challenges:
+
+- **Cloudflare Turnstile**: Checks for cdn-cgi challenge URLs and browser verification status.
+- **reCAPTCHA Enterprise & v2/v3**: Detects recaptcha execution wrappers and checkbox anchors.
+- **hCaptcha**: Identifies hCaptcha API script targets and checkbox tags.
+- **Custom JS Barriers**: Catches access-denied integrity tests and automated driver blocks.
+
+When a challenge is detected, the agent logs the specific anti-bot type, sounds a terminal beep, and pauses execution so you can solve it manually.
 
 ---
 

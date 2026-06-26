@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { findBestDropdownOption, findVerifiedDropdownValue, isDropdownPlaceholder, normalizeDropdownText } from './dropdown.js';
 import { attributeSelector, idFromLegacySelector } from './selector.js';
+import { credentialFillLogMessage, isCredentialToken, resolveCredential, resolveFillValue } from '../credentials.js';
 
 let interactionSequence = 0;
 
@@ -205,18 +206,19 @@ export async function executeAction(page, action, profile) {
           break;
         }
 
-        // Resolve credential tokens. Match loosely (case-insensitive, underscores
-        // optional) so an AI that drops the __ never types the literal token text.
+        // Credential fills — resolved locally; never logged or sent to AI providers.
         let fillValue = action.value;
-        const tok = String(fillValue || '').toLowerCase().replace(/_/g, '');
-        if (tok === 'googleemail') {
-          fillValue = profile.credentials?.google?.username || profile.email;
-        } else if (tok === 'googlepassword') {
-          fillValue = profile.credentials?.google?.password || '';
-        } else if (tok === 'defaultusername') {
-          fillValue = profile.credentials?.default?.username || '';
-        } else if (tok === 'defaultpassword') {
-          fillValue = profile.credentials?.default?.password || '';
+        let fillResolved = { isSecret: false, credentialFilled: false };
+        if (isCredentialToken(fillValue)) {
+          fillResolved = resolveFillValue(fillValue, profile);
+          fillValue = fillResolved.value;
+        } else {
+          const tok = String(fillValue || '').toLowerCase().replace(/_/g, '');
+          if (tok === 'googleemail') {
+            fillValue = resolveCredential('google', 'username', profile) || profile.email;
+          } else if (tok === 'defaultusername') {
+            fillValue = resolveCredential('default', 'username', profile) || '';
+          }
         }
 
         const currentVal = await page.evaluate(e => e.value, el).catch(() => '');
@@ -314,7 +316,8 @@ export async function executeAction(page, action, profile) {
           await page.evaluate(e => { e.value = ''; }, el).catch(() => {});
 
           await el.type(String(fillValue || ''));
-          console.log(`    → "${String(fillValue || '').slice(0, 80)}"`);
+          const credLog = credentialFillLogMessage(fillResolved);
+          console.log(credLog || `    → "${String(fillValue || '').slice(0, 80)}"`);
         }
         break;
       }
@@ -563,9 +566,9 @@ export async function executeAction(page, action, profile) {
           let searchText = action.description || action.value || '';
           const ctok = String(searchText).toLowerCase().replace(/_/g, '');
           if (ctok === 'googleemail') {
-            searchText = profile.credentials?.google?.username || profile.email;
+            searchText = resolveCredential('google', 'username', profile) || profile.email;
           } else if (ctok === 'defaultusername') {
-            searchText = profile.credentials?.default?.username || '';
+            searchText = resolveCredential('default', 'username', profile) || '';
           }
 
           el = await page.evaluateHandle((text) => {
@@ -731,53 +734,52 @@ export async function executeAction(page, action, profile) {
 }
 
 export async function autoHandleSpecials(page, pageState, profile) {
-  // 1. Credentials Auto-Login
+  // 1. Credentials Auto-Login — deterministic path; secrets never touch AI context.
   if (profile.credentials) {
     const url = page.url ? await page.url() : await page.evaluate(() => window.location.href);
 
-    // Google Sign-In helper
     if (url.includes('accounts.google.com') && profile.credentials.google) {
+      const googleUser = resolveCredential('google', 'username', profile);
+      const googlePass = resolveCredential('google', 'password', profile);
       const emailInput = await page.$('input[type="email"]');
-      if (emailInput) {
+      if (emailInput && googleUser) {
         const val = await page.evaluate(e => e.value, emailInput);
         if (!val) {
           await emailInput.click();
-          await page.keyboard.type(profile.credentials.google.username);
+          await page.keyboard.type(googleUser);
           const nextBtn = await page.$('#identifierNext button, button');
           if (nextBtn) await nextBtn.click();
           await new Promise(r => setTimeout(r, 2000));
         }
       }
       const passwordInput = await page.$('input[type="password"]');
-      if (passwordInput) {
+      if (passwordInput && googlePass) {
         const val = await page.evaluate(e => e.value, passwordInput);
         if (!val) {
           await passwordInput.click();
-          await page.keyboard.type(profile.credentials.google.password);
+          await page.keyboard.type(googlePass);
           const nextBtn = await page.$('#passwordNext button, button');
           if (nextBtn) await nextBtn.click();
           await new Promise(r => setTimeout(r, 2000));
         }
       }
     } else {
-      // Standard Login Page helper
+      const defaultUser = resolveCredential('default', 'username', profile);
+      const defaultPass = resolveCredential('default', 'password', profile);
       const passwordInput = await page.$('input[type="password"]');
-      if (passwordInput) {
+      if (passwordInput && defaultPass) {
         const isPassEmpty = await page.evaluate(e => !e.value, passwordInput);
         if (isPassEmpty) {
-          // Find preceding username/email input
           const usernameInput = await page.$('input[type="email"], input[name*="user"], input[name*="login"], input[type="text"]');
           if (usernameInput) {
             const isUserEmpty = await page.evaluate(e => !e.value, usernameInput);
-            if (isUserEmpty && profile.credentials.default?.username) {
+            if (isUserEmpty && defaultUser) {
               await usernameInput.click();
-              await page.keyboard.type(profile.credentials.default.username);
+              await page.keyboard.type(defaultUser);
             }
           }
-          if (profile.credentials.default?.password) {
-            await passwordInput.click();
-            await page.keyboard.type(profile.credentials.default.password);
-          }
+          await passwordInput.click();
+          await page.keyboard.type(defaultPass);
         }
       }
     }
