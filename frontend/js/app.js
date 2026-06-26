@@ -11,7 +11,25 @@ import { renderHistory } from './pages/history.js';
 import { renderSettings } from './pages/settings.js';
 
 // ─── API Client ────────────────────────────────────────────────────────────
-const BACKEND_URL = window.location.port && window.location.port !== '3000' ? 'http://localhost:3000' : '';
+let BACKEND_URL = localStorage.getItem('BACKEND_URL') || '';
+
+if (!BACKEND_URL) {
+  try {
+    const envRes = await fetch('/env.json');
+    if (envRes.ok) {
+      const envData = await envRes.json();
+      if (envData.BACKEND_URL) {
+        BACKEND_URL = envData.BACKEND_URL;
+      }
+    }
+  } catch {
+    // env.json not present or failed to load
+  }
+}
+
+if (!BACKEND_URL) {
+  BACKEND_URL = window.location.port && window.location.port !== '3000' ? 'http://localhost:3000' : '';
+}
 
 const API = {
   async get(url) {

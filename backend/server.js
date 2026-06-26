@@ -1,9 +1,13 @@
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketIO } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
+import fs from 'fs';
+
 
 import statusRoutes from './routes/status.js';
 import providerRoutes from './routes/providers.js';
@@ -18,6 +22,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.join(__dirname, '..');
 
+// Connect to MongoDB
+const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/gpt_auth';
+mongoose.connect(mongoUri)
+  .then(() => console.log('  ✓ Connected to MongoDB'))
+  .catch(err => console.error('  ✗ MongoDB connection error:', err));
+
 const app = express();
 const server = createServer(app);
 const io = new SocketIO(server, {
@@ -29,7 +39,11 @@ app.use(cors());
 app.use(express.json());
 
 // Serve frontend static files
-app.use(express.static(path.join(ROOT, 'frontend')));
+const frontendDistPath = path.join(ROOT, 'frontend', 'dist');
+const frontendSourcePath = path.join(ROOT, 'frontend');
+const frontendPath = fs.existsSync(frontendDistPath) ? frontendDistPath : frontendSourcePath;
+app.use(express.static(frontendPath));
+
 
 // Make io accessible to routes
 app.set('io', io);
@@ -46,7 +60,10 @@ app.use('/api', historyRoutes);
 
 // ─── SPA fallback ──────────────────────────────────────────────────────────
 app.get('*splat', (req, res) => {
-  res.sendFile(path.join(ROOT, 'frontend', 'index.html'));
+  const indexFile = fs.existsSync(path.join(frontendDistPath, 'index.html'))
+    ? path.join(frontendDistPath, 'index.html')
+    : path.join(frontendSourcePath, 'index.html');
+  res.sendFile(indexFile);
 });
 
 // ─── Socket.IO ─────────────────────────────────────────────────────────────

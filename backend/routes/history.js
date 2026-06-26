@@ -4,43 +4,53 @@ const router = Router();
 
 router.get('/history', async (req, res) => {
   try {
-    const { openApplicationLedger } = await import('../src/apply/ledger.js');
-    const db = await openApplicationLedger();
-    try {
-      const limit = parseInt(req.query.limit) || 50;
-      const offset = parseInt(req.query.offset) || 0;
-      const verdict = req.query.verdict || null;
+    const { Application } = await import('../src/apply/ledger.js');
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+    const verdict = req.query.verdict || null;
 
-      let query = 'SELECT * FROM applications';
-      const params = [];
-      if (verdict) { query += ' WHERE verdict = ?'; params.push(verdict); }
-      query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
-      params.push(limit, offset);
+    const filter = {};
+    if (verdict) filter.verdict = verdict;
 
-      const rows = db.prepare(query).all(...params);
-      const total = db.prepare(verdict ? 'SELECT COUNT(*) as count FROM applications WHERE verdict = ?' : 'SELECT COUNT(*) as count FROM applications').get(...(verdict ? [verdict] : []));
-      res.json({ applications: rows, total: total.count, limit, offset });
-    } finally { db.close(); }
+    const rows = await Application.find(filter)
+      .sort({ timestamp: -1 })
+      .skip(offset)
+      .limit(limit);
+
+    const count = await Application.countDocuments(filter);
+    res.json({ applications: rows, total: count, limit, offset });
   } catch (err) {
-    if (err.message?.includes('node:sqlite')) return res.json({ applications: [], total: 0, warning: 'SQLite not available (Node 22.5+)' });
     res.status(500).json({ error: err.message });
   }
 });
 
 router.get('/history/stats', async (req, res) => {
   try {
-    const { openApplicationLedger } = await import('../src/apply/ledger.js');
-    const db = await openApplicationLedger();
-    try {
-      const total = db.prepare('SELECT COUNT(*) as count FROM applications').get();
-      const success = db.prepare('SELECT COUNT(*) as count FROM applications WHERE verdict = ?').get('success');
-      const failure = db.prepare('SELECT COUNT(*) as count FROM applications WHERE verdict = ?').get('failure');
-      const byReason = db.prepare('SELECT failure_reason, COUNT(*) as count FROM applications WHERE verdict = ? GROUP BY failure_reason').all('failure');
-      const recent = db.prepare('SELECT url, company, role, verdict, failure_reason, timestamp FROM applications ORDER BY timestamp DESC LIMIT 5').all();
-      res.json({ total: total.count, success: success.count, failure: failure.count, successRate: total.count > 0 ? Math.round((success.count / total.count) * 100) : 0, failureReasons: byReason, recent });
-    } finally { db.close(); }
+    const { Application } = await import('../src/apply/ledger.js');
+    
+    const total = await Application.countDocuments({});
+    const success = await Application.countDocuments({ verdict: 'success' });
+    const failure = await Application.countDocuments({ verdict: 'failure' });
+
+    const byReason = await Application.aggregate([
+      { $match: { verdict: 'failure' } },
+      { $group: { _id: '$failure_reason', count: { $sum: 1 } } }
+    ]);
+    const failureReasons = byReason.map(r => ({ failure_reason: r._id, count: r.count }));
+
+    const recent = await Application.find({})
+      .sort({ timestamp: -1 })
+      .limit(5);
+
+    res.json({
+      total,
+      success,
+      failure,
+      successRate: total > 0 ? Math.round((success / total) * 100) : 0,
+      failureReasons,
+      recent
+    });
   } catch (err) {
-    if (err.message?.includes('node:sqlite')) return res.json({ total: 0, success: 0, failure: 0, successRate: 0, failureReasons: [], recent: [] });
     res.status(500).json({ error: err.message });
   }
 });

@@ -20,6 +20,21 @@ export async function renderSettings(container, ctx) {
           <div style="text-align:center;padding:20px;color:var(--text-muted)">Loading...</div>
         </div>
       </div>
+      
+      <div class="card" style="margin-bottom:24px">
+        <div class="card-header">
+          <div><div class="card-title">Backend Connection</div>
+          <div class="card-subtitle">Specify your Ngrok tunnel URL if hosting the frontend SPA on Render/GitHub Pages.</div></div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+          <div class="input-group" style="flex:1;min-width:250px;margin-bottom:0">
+            <label class="input-label">Ngrok Backend URL</label>
+            <input type="text" class="input" id="backendUrlInput" placeholder="e.g. https://a1b2-c3d4.ngrok-free.app">
+          </div>
+          <button class="btn btn-primary" id="saveBackendBtn">Save URL</button>
+          <button class="btn btn-danger" id="clearBackendBtn">Reset</button>
+        </div>
+      </div>
 
       <div class="card">
         <div class="card-header">
@@ -144,5 +159,30 @@ export async function renderSettings(container, ctx) {
       btn.disabled = false;
       btn.textContent = 'Save Session';
     }
+  });
+
+  // Backend connection settings logic
+  const savedUrl = localStorage.getItem('BACKEND_URL') || '';
+  const inputEl = document.getElementById('backendUrlInput');
+  if (inputEl) inputEl.value = savedUrl;
+
+  document.getElementById('saveBackendBtn')?.addEventListener('click', () => {
+    let url = document.getElementById('backendUrlInput').value.trim();
+    if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
+    }
+    if (url) {
+      localStorage.setItem('BACKEND_URL', url);
+      ctx.showToast('Backend URL saved! Reloading...', 'success');
+      setTimeout(() => window.location.reload(), 1200);
+    } else {
+      ctx.showToast('Please enter a valid URL', 'warning');
+    }
+  });
+
+  document.getElementById('clearBackendBtn')?.addEventListener('click', () => {
+    localStorage.removeItem('BACKEND_URL');
+    ctx.showToast('Connection reset to default. Reloading...', 'info');
+    setTimeout(() => window.location.reload(), 1200);
   });
 }

@@ -1,75 +1,59 @@
-import fs from 'fs';
+import mongoose from 'mongoose';
 import path from 'path';
+import { DATA_DIR } from '../config.js';
 
-import { DATA_DIR, LEDGER_DB_FILE as DB_PATH } from '../config.js';
+const applicationSchema = new mongoose.Schema({
+  url: { type: String, index: true },
+  company: { type: String },
+  role: { type: String },
+  verdict: { type: String, required: true },
+  failure_reason: { type: String },
+  run_id: { type: String },
+  timestamp: { type: Date, default: Date.now, required: true }
+});
 
-let sqliteModPromise = null;
+applicationSchema.index({ company: 1, role: 1 });
 
-async function loadSqlite() {
-  if (!sqliteModPromise) {
-    sqliteModPromise = import('node:sqlite').catch(() => null);
-  }
-  return sqliteModPromise;
-}
+export const Application = mongoose.models.Application || mongoose.model('Application', applicationSchema);
 
 export async function openApplicationLedger() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const sqlite = await loadSqlite();
-  if (!sqlite?.DatabaseSync) {
-    throw new Error('node:sqlite is not available in this Node runtime; use Node 22.5+ or 24+.');
+  if (mongoose.connection.readyState === 0) {
+    try {
+      const dotenv = await import('dotenv');
+      dotenv.config({ path: path.join(DATA_DIR, '..', '.env') });
+    } catch { /* ignore */ }
+    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/gpt_auth';
+    await mongoose.connect(mongoUri);
   }
-  const db = new sqlite.DatabaseSync(DB_PATH);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS applications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      url TEXT,
-      company TEXT,
-      role TEXT,
-      verdict TEXT NOT NULL,
-      failure_reason TEXT,
-      run_id TEXT,
-      timestamp TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_applications_url ON applications(url);
-    CREATE INDEX IF NOT EXISTS idx_applications_company_role ON applications(company, role);
-  `);
-  return db;
+  return Application;
 }
 
 export async function findSuccessfulApplication({ url, company, role } = {}) {
-  const db = await openApplicationLedger();
-  try {
-    if (url) {
-      const row = db.prepare('SELECT * FROM applications WHERE url = ? AND verdict = ? ORDER BY timestamp DESC LIMIT 1').get(url, 'success');
-      if (row) return row;
-    }
-    if (company && role) {
-      return db.prepare(
-        'SELECT * FROM applications WHERE lower(company) = lower(?) AND lower(role) = lower(?) AND verdict = ? ORDER BY timestamp DESC LIMIT 1'
-      ).get(company, role, 'success') || null;
-    }
-    return null;
-  } finally {
-    db.close();
+  await openApplicationLedger();
+  if (url) {
+    const row = await Application.findOne({ url, verdict: 'success' }).sort({ timestamp: -1 });
+    if (row) return row.toObject();
   }
+  if (company && role) {
+    const row = await Application.findOne({
+      company: { $regex: new RegExp(`^${company.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i') },
+      role: { $regex: new RegExp(`^${role.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i') },
+      verdict: 'success'
+    }).sort({ timestamp: -1 });
+    return row ? row.toObject() : null;
+  }
+  return null;
 }
 
 export async function recordApplicationVerdict({ url, company, role, verdict, failure_reason, run_id }) {
-  const db = await openApplicationLedger();
-  try {
-    db.prepare(`
-      INSERT INTO applications (url, company, role, verdict, failure_reason, run_id, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      url || null,
-      company || null,
-      role || null,
-      verdict || 'failure',
-      failure_reason || null,
-      run_id || null,
-      new Date().toISOString()
-    );
-  } finally {
-    db.close();
-  }
+  await openApplicationLedger();
+  await Application.create({
+    url: url || null,
+    company: company || null,
+    role: role || null,
+    verdict: verdict || 'failure',
+    failure_reason: failure_reason || null,
+    run_id: run_id || null,
+    timestamp: new Date()
+  });
 }

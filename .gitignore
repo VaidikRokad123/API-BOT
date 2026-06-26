@@ -26,6 +26,7 @@ resume.pdf
 .env
 backend/.env
 *.env
+frontend/env.json
 
 # ── Runtime screenshots ───────────────────────────────────────────────────────
 step_*.png

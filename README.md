@@ -43,16 +43,22 @@ Everything runs from a single interactive console (`node agent.js`). The browser
 ## Quick Start
 
 ```powershell
-# 1. Install
+# 1. Install dependencies for all folders (root, backend, frontend)
 npm install
+npm run install:all
 npx playwright install chromium
 
-# 2. Create your profile (only needed for /apply)
-copy data\profile.example.json data\profile.json
-# → open data\profile.json and fill in your real info
+# 2. Configure Environment Variables
+# Copy the env templates and set your MongoDB URI / ports
+copy backend\.env.example backend\.env
+copy frontend\.env.example frontend\.env
 
-# 3. Start the agent
-node agent.js
+# 3. Create your profile (only needed for /apply)
+copy backend\data\profile.example.json backend\data\profile.json
+# → open backend/data/profile.json and fill in your real info
+
+# 4. Start the interactive CLI agent REPL
+npm run agent
 ```
 
 Then inside the console:
@@ -67,14 +73,15 @@ Then inside the console:
 
 ## Requirements
 
-- **Node.js v18+** — [nodejs.org](https://nodejs.org) (v22.5+ or v24+ recommended for the SQLite-based application ledger)
+- **Node.js v18+** — [nodejs.org](https://nodejs.org)
+- **MongoDB** — A running MongoDB server instance (local or Atlas cloud URI)
 - An account with at least one of: **ChatGPT**, **Grok**, **Gemini**, **Perplexity**, **DeepSeek** (free tiers work)
 
 ---
 
 ## The Console
 
-Run `node agent.js` and you get an interactive prompt:
+Run `npm run agent` (or `node backend/agent.js`) and you get an interactive prompt:
 
 ```
   ╔══════════════════════════════════════════════════════╗
@@ -111,49 +118,59 @@ Run `node agent.js` and you get an interactive prompt:
 
 ## Web Interface
 
-The project includes a premium, glassmorphic dark-themed Web Interface (Dashboard) and an Express.js API backend with real-time Socket.IO logs.
+The project includes a premium, glassmorphic dark-themed Web Interface (Dashboard) built with **React and Vite**, communicating with an Express.js API backend with real-time Socket.IO logs.
 
 ### Start the Web Server
 
-You can run the frontend and backend either in **unified mode** (on a single port) or in **independent mode** (on separate ports).
+You can run the frontend and backend in development mode concurrently or serve them independently.
 
-#### 1. Unified Mode (Single Port: `3000`)
-The Express backend automatically serves the static frontend SPA assets:
+#### 1. Development Mode (Concurrent Server: Ports `3000` & `5000`)
+You can run both the Express backend API and the React Vite dev server concurrently with a single command from the root folder:
 ```powershell
-# Start the backend server (automatically hosts the frontend)
-npm run serve:backend
+# Start both backend and React frontend concurrently
+npm run dev
+```
+Open **[http://localhost:5000](http://localhost:5000)** in your browser. API calls and WebSocket connections will automatically be proxied to the backend on port `3000`.
+
+#### 2. Production Mode (Single Port: `3000`)
+You can compile the frontend SPA assets and have the Express backend serve them statically:
+```powershell
+# 1. Compile the React Vite frontend app
+npm run build:frontend
+
+# 2. Start the production backend server
+npm start
 ```
 Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
-#### 2. Independent Mode (Separate Ports: `3000` & `5000`)
-You can run the frontend SPA on a separate web server (port `5000`) and the backend API on port `3000`. The frontend will automatically detect the port difference and route all API calls and Socket.IO connections to `http://localhost:3000`:
-```powershell
-# In terminal 1: Start the backend API server (runs on Port 3000)
-npm run serve:backend
-
-# In terminal 2: Start the frontend static web server (runs on Port 5000)
-npm run serve:frontend
-```
-Open **[http://localhost:5000](http://localhost:5000)** in your browser.
+#### 3. Custom Backend Routing (e.g. for Render or Ngrok)
+If you host the frontend SPA on a separate platform like **Render** or **GitHub Pages** and expose your local backend via **Ngrok**, you can configure the backend URL by editing the frontend environment variables:
+1. Open `frontend/.env`.
+2. Set the `VITE_BACKEND_URL` variable to your public Ngrok URL:
+   ```env
+   VITE_BACKEND_URL=https://your-ngrok-subdomain.ngrok-free.app
+   ```
+The frontend SPA will load this variable at build/runtime to establish connections. You can also configure or override this URL on the fly inside the **Settings** page of the web application.
 
 ### Features
 - **Dashboard**: Quick view of active provider status, connection status, overall stats (e.g. total applied, success rate), and recent application ledger logs.
 - **Chat**: Real-time message streaming with message history, provider selector dropdown, and a live "thinking" state.
 - **Job Apply**: Paste a job application URL, select a browser/AI engine, toggle company research, and view real-time log streaming and final outcome status.
 - **Browser Subagent**: Run natural-language tasks via the browser agent with a live status/screenshot console and completion reports.
-- **History**: Full database query view of all job applications from the SQLite ledger with filters and statistics cards.
-- **Settings**: Manage logins/sessions for all 5 providers, choose active browser engines, edit natural-language permission policies, and view your profile information.
+- **History**: Full database query view of all job applications from the MongoDB database with filters and statistics cards.
+- **Settings**: Manage logins/sessions for all 5 providers, choose active browser engines, edit natural-language permission policies, and configure custom backend connection URLs.
 
 ### Web Architecture
 
-The frontend is built as a single page application (SPA) with vanilla CSS (glassmorphism design) and modern JS page components, and uses Socket.IO for real-time progress streaming:
+The application is structured as a standard MERN workspace:
 
 - `/backend/server.js`: Express & Socket.IO server config.
 - `/backend/routes/`: Route modules mapping request parameters to core engine runs.
-- `/frontend/index.html`: SPA container shell.
-- `/frontend/css/style.css`: Design system and layout styling.
-- `/frontend/js/app.js`: Client-side SPA routing, API fetch client, and Socket.IO initialization.
-- `/frontend/js/pages/`: Modular page views loaded dynamically (dashboard, chat, apply, etc.).
+- `/frontend/index.html`: Vite entry HTML template.
+- `/frontend/src/App.jsx`: React main layout shell, navigation, and state.
+- `/frontend/src/main.jsx`: React mount entrypoint.
+- `/frontend/src/components/`: Reusable React components (Dashboard, Chat, Apply, Browser, History, Settings).
+- `/frontend/src/index.css`: Glassmorphic layout styling.
 
 ---
 
@@ -162,7 +179,11 @@ The frontend is built as a single page application (SPA) with vanilla CSS (glass
 ### Step 1 — Install
 
 ```powershell
+# Install all dependencies for root, backend, and frontend
 npm install
+npm run install:all
+
+# Install playwright browser binaries
 npx playwright install chromium
 ```
 
@@ -171,7 +192,7 @@ npx playwright install chromium
 > $env:PLAYWRIGHT_BROWSERS_PATH="D:\playwright-browsers"
 > npx playwright install chromium
 > ```
-> Set that env var again before running `node agent.js`.
+> Set that env var again before running `npm run agent`.
 
 ### Step 2 — Log in to a provider
 
@@ -200,7 +221,7 @@ You only do this **once per provider**. Re-run `/login` if a session expires.
 ### Step 3 — Create your profile (only for `/apply`)
 
 ```powershell
-copy data\profile.example.json data\profile.json
+copy backend\data\profile.example.json backend\data\profile.json
 ```
 
 Fill in `data\profile.json` — this is what the agent uses to answer application questions and log you into job portals.
