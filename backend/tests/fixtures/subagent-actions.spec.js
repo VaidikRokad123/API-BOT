@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { pathToFileURL } from 'url';
 import path from 'path';
-import { act, perceive } from '../../src/apply/browser-subagent.js';
+import { act, perceive } from '../../src/subagent/engine.js';
 
 function fixtureUrl(name) {
   return pathToFileURL(path.join(process.cwd(), 'tests', 'fixtures', 'pages', name)).href;
@@ -50,4 +50,11 @@ test('multi-page next flow waits for revealed conditional fields', async ({ page
   await expect(page.locator('#email')).toBeVisible();
   await act(page, { type: 'fill', selector: '#email', value: 'ada@example.com' });
   await expect(page.locator('#email')).toHaveValue('ada@example.com');
+});
+
+test('native confirm dialog auto-accepted does not block click', async ({ page }) => {
+  page.on('dialog', dialog => dialog.accept());
+  await page.goto(fixtureUrl('dialog-confirm.html'));
+  await act(page, { type: 'click', selector: '#confirm-btn' });
+  await expect(page.locator('#status')).toHaveText('confirmed');
 });

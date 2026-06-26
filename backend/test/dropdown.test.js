@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findBestDropdownOption, findVerifiedDropdownValue, isDropdownPlaceholder, normalizeDropdownText } from '../src/apply/dropdown.js';
+import { findBestDropdownOption, findVerifiedDropdownValue, isDropdownPlaceholder, normalizeDropdownText } from '../src/subagent/dropdown.js';
 
 const options = values => values.map(([text, value = text]) => ({ text, value }));
 

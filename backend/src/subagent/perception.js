@@ -1,4 +1,4 @@
-import { perceive } from '../apply/browser-subagent.js';
+import { perceive } from './engine.js';
 
 export async function buildObservation(page, consoleBuffer = null) {
   return perceive(page, consoleBuffer);

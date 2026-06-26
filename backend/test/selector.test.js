@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { attributeSelector, idFromLegacySelector } from '../src/apply/selector.js';
+import { attributeSelector, idFromLegacySelector } from '../src/subagent/selector.js';
 
 test('dotted IDs use escape-proof attribute selectors', () => {
   assert.equal(

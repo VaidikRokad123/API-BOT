@@ -1,7 +1,7 @@
 import { redactCredentialArgs } from '../credentials.js';
-import { attributeSelector, idFromLegacySelector } from '../apply/selector.js';
-import { perceive } from '../apply/browser-subagent.js';
-import { act as executeSubagentAction, enforceActionPermission, waitForStable } from '../apply/browser-subagent.js';
+import { attributeSelector, idFromLegacySelector } from './selector.js';
+import { perceive, act as executeSubagentAction, enforceActionPermission, waitForStable } from './engine.js';
+import { handleOAuthPages } from './oauth.js';
 
 async function findActionElement(page, selector) {
   if (selector.includes(' >>> ')) {
@@ -247,6 +247,11 @@ export const TOOL_REGISTRY = {
       }
       const pages = typeof ctx.browser?.pages === 'function' ? await ctx.browser.pages().catch(() => []) : [];
       const candidates = pages.length ? pages : [page];
+      const oauth = await handleOAuthPages(candidates, ctx.profile || {});
+      if (oauth.handled) {
+        await waitForStable(page);
+        return `OAuth handled (${oauth.action})`;
+      }
       for (const candidate of candidates) {
         const url = typeof candidate.url === 'function' ? candidate.url() : '';
         if (!/accounts\.google|login|oauth|signin|sso/i.test(url)) continue;
@@ -261,12 +266,12 @@ export const TOOL_REGISTRY = {
           /button|link/.test(el.role) && /continue|sign in|use another account|next/i.test(el.name)
         );
         if (preferred) {
-          await executeSubagentAction(candidate, { type: 'click', selector: preferred.selector, category: 'oauth_login' }, ctx);
+          await executeSubagentAction(candidate, { type: 'click', selector: preferred.selector, ref: preferred.ref, category: 'oauth_login' }, ctx);
           await waitForStable(candidate);
           return `Clicked OAuth/account chooser control "${preferred.name}"`;
         }
       }
-      return 'No OAuth popup/account chooser was actionable; use the visible authenticated browser profile or click the account chooser manually';
+      return 'No OAuth popup actionable — use persistent browser profile or click account chooser manually';
     }
   },
   signature: {

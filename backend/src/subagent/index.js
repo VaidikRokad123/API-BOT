@@ -1,23 +1,23 @@
 import fs from 'fs';
 import { openAiSession, sendMessage } from '../ai.js';
 import { launchBrowser, newStealthContext } from '../browser.js';
-import { PROFILE_FILE } from '../config.js';
+import { PROFILE_FILE, PERMISSIONS_FILE } from '../config.js';
 import { attachConsoleCapture } from './console.js';
 import { ArtifactRun } from './artifacts.js';
 import { buildObservation } from './perception.js';
 import { buildSubagentPrompt } from './prompt.js';
 import { TOOL_REGISTRY } from './tools.js';
 import { verifyGoal } from './verify.js';
-import { sanitizeGptJson } from '../apply/prompt.js';
+import { parseAndValidateAction, sanitizeGptJson } from './ai-json.js';
 import { detectCaptcha, pauseForUser } from '../apply/captcha.js';
 import { isSubmissionConfirmed } from '../apply/completion.js';
 import { researchJob } from '../apply/research.js';
-import { validateAiAction } from '../apply/browser-subagent.js';
 import { verdictWithFailureReason } from '../apply/failure-taxonomy.js';
 import { createSubagentFsm } from './fsm.js';
 import { createRunLogger } from './logger.js';
 import { loadDomainSkill, saveDomainSkill, prepareDomainSkillForReplay, attachElementHashToHistoryEntry } from './domain-skills.js';
 import { checkDomain, wrapContent, scanContent } from './idpi.js';
+import { attachDialogHandlers } from './dialog-handlers.js';
 
 const DEFAULT_ALLOWED_DOMAINS = [
   '*.perplexity.ai', 'perplexity.ai',
@@ -28,24 +28,14 @@ const DEFAULT_ALLOWED_DOMAINS = [
   'localhost', '127.0.0.1'
 ];
 
-function readPermissions() {
+function readPermissions(options = {}) {
+  if (options.permissions && typeof options.permissions === 'object') {
+    return options.permissions;
+  }
   try {
-    return JSON.parse(fs.readFileSync('data/permissions.json', 'utf8'));
+    return JSON.parse(fs.readFileSync(PERMISSIONS_FILE, 'utf8'));
   } catch {
     return {};
-  }
-}
-
-async function parseAndValidateAction(raw, aiPage, logger) {
-  try {
-    return validateAiAction(sanitizeGptJson(raw));
-  } catch (err) {
-    logger?.warn?.({ err: err.message }, 'ai_action_invalid_retrying');
-    const retry = await sendMessage(
-      aiPage,
-      `Your previous response was invalid: ${err.message}\nReturn ONLY one JSON object matching the requested tool schema. No markdown.`
-    );
-    return validateAiAction(sanitizeGptJson(retry));
   }
 }
 
@@ -87,14 +77,18 @@ export async function runBrowserSubagent(task, options = {}) {
   logger.info({ task, options: { isApply: !!options.isApply, engine: options.engine, aiEngine } }, 'subagent_start');
 
   const { browser: aiBrowser, page: aiPage } = await openAiSession(false, { engine: aiEngine });
-  const appBrowser = await launchBrowser(visible, 'subagent', { engine: options.engine });
+  const appBrowser = await launchBrowser(visible, options.isApply ? 'apply' : 'subagent', {
+    engine: options.engine,
+    persistentProfile: options.persistentProfile !== false && options.isApply
+  });
   const appCtx = await newStealthContext(appBrowser);
   const page = await appCtx.newPage();
+  attachDialogHandlers(page);
   const consoleBuffer = attachConsoleCapture(page);
 
   let research = null;
   let applicationUrl = options.jobUrl || '';
-  const permissions = readPermissions();
+  const permissions = readPermissions(options);
   const domainSkill = options.jobUrl ? loadDomainSkill(options.jobUrl) : null;
   const fsm = await createSubagentFsm({ isApply: !!options.isApply, run, logger });
 
@@ -238,7 +232,7 @@ Return ONLY this JSON:
       let action;
       try {
         const raw = await sendMessage(aiPage, prompt);
-        action = await parseAndValidateAction(raw, aiPage, logger);
+        action = await parseAndValidateAction(raw, aiPage, sendMessage, logger);
       } catch (e) {
         logger.error({ err: e.message }, 'ai_action_failed');
         fsm.send('FAIL', { reason: e.message });
@@ -295,7 +289,7 @@ Return ONLY this JSON:
       ? (finishPayload.report || finishPayload.result || finishPayload.summary || finishPayload.answer || '')
       : '';
 
-    const verdict = verdictWithFailureReason(await verifyGoal(page, task, aiPage, consoleBuffer, agentReport));
+    const verdict = verdictWithFailureReason(await verifyGoal(page, task, aiPage, consoleBuffer, agentReport, { isApply: !!options.isApply }));
     logger.info({ verdict, agentReport: String(agentReport || '').slice(0, 1200) }, 'subagent_verdict');
 
     run.writeReport(history, verdict, agentReport);
