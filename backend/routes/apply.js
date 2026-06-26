@@ -17,10 +17,11 @@ router.post('/apply', async (req, res) => {
       return origWrite(chunk, ...args);
     };
 
+    const { readBrowserPref, readAiBrowserPref } = await import('../src/browser.js');
     const { apply } = await import('../src/apply/index.js');
     const result = await apply(url, true, {
-      browserEngine: engine || 'real-chrome',
-      aiEngine: aiEngine || 'playwright',
+      browserEngine: engine || readBrowserPref(),
+      aiEngine: aiEngine || readAiBrowserPref(),
       doResearch: doResearch !== false
     });
 

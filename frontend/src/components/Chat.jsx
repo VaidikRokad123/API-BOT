@@ -9,6 +9,19 @@ export default function Chat({ ctx }) {
   const [inputDisabled, setInputDisabled] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const sessionIdRef = useRef(null);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    return () => {
+      if (sessionIdRef.current) {
+        ctx.API.post('/chat/close', { sessionId: sessionIdRef.current }).catch(() => {});
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (messagesEndRef.current) {

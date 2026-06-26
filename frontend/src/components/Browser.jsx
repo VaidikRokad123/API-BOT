@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 
 export default function Browser({ ctx }) {
   const [task, setTask] = useState('');
-  const [engine, setEngine] = useState('');
   const [hidden, setHidden] = useState(false);
   const [running, setRunning] = useState(false);
   const [progressVisible, setProgressVisible] = useState(false);
@@ -56,7 +55,6 @@ export default function Browser({ ctx }) {
     try {
       const data = await ctx.API.post('/browser/task', {
         task: trimmedTask,
-        engine: engine || undefined,
         hidden
       });
 
@@ -107,34 +105,17 @@ export default function Browser({ ctx }) {
           ></textarea>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-          <div className="input-group">
-            <label className="input-label">Browser Engine</label>
-            <select
-              className="input"
-              value={engine}
-              onChange={(e) => setEngine(e.target.value)}
-              disabled={running}
-            >
-              <option value="">Default</option>
-              <option value="playwright">Playwright</option>
-              <option value="real-chrome">Real Chrome</option>
-              <option value="real-brave">Real Brave</option>
-              <option value="real-opera">Real Opera</option>
-            </select>
-          </div>
-          <div className="input-group">
-            <label className="input-label">Mode</label>
-            <select
-              className="input"
-              value={hidden ? 'true' : 'false'}
-              onChange={(e) => setHidden(e.target.value === 'true')}
-              disabled={running}
-            >
-              <option value="false">Visible</option>
-              <option value="true">Hidden (headless)</option>
-            </select>
-          </div>
+        <div className="input-group">
+          <label className="input-label">Mode</label>
+          <select
+            className="input"
+            value={hidden ? 'true' : 'false'}
+            onChange={(e) => setHidden(e.target.value === 'true')}
+            disabled={running}
+          >
+            <option value="false">Visible</option>
+            <option value="true">Hidden (headless)</option>
+          </select>
         </div>
 
         <button

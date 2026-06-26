@@ -52,9 +52,16 @@ export function readBrowserPref() {
     const data = JSON.parse(fs.readFileSync(BROWSER_PREF_FILE, 'utf8'));
     if (data.browser === 'real') return 'real-chrome';
     if (ENGINES[data.browser]) return data.browser;
-    // Any retired engine (chrome/chromium/selenium/firefox/webkit) → Playwright.
   } catch { /* ignore */ }
-  return 'playwright'; // default: self-contained engine, no manual browser start
+  return 'playwright'; // default
+}
+
+export function readAiBrowserPref() {
+  try {
+    const data = JSON.parse(fs.readFileSync(BROWSER_PREF_FILE, 'utf8'));
+    if (data.aiBrowser && ENGINES[data.aiBrowser]) return data.aiBrowser;
+  } catch { /* ignore */ }
+  return 'playwright'; // default
 }
 
 function markRealBrowserConnection(browser) {
@@ -111,7 +118,23 @@ async function waitForRealBrowser(realConfig, timeoutMs = 8000) {
 export function saveBrowserPref(key) {
   const dir = path.dirname(BROWSER_PREF_FILE);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(BROWSER_PREF_FILE, JSON.stringify({ browser: key }));
+  let data = {};
+  try {
+    data = JSON.parse(fs.readFileSync(BROWSER_PREF_FILE, 'utf8'));
+  } catch { /* ignore */ }
+  data.browser = key;
+  fs.writeFileSync(BROWSER_PREF_FILE, JSON.stringify(data, null, 2));
+}
+
+export function saveAiBrowserPref(key) {
+  const dir = path.dirname(BROWSER_PREF_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  let data = {};
+  try {
+    data = JSON.parse(fs.readFileSync(BROWSER_PREF_FILE, 'utf8'));
+  } catch { /* ignore */ }
+  data.aiBrowser = key;
+  fs.writeFileSync(BROWSER_PREF_FILE, JSON.stringify(data, null, 2));
 }
 
 export function getEngineList() {
@@ -125,13 +148,7 @@ const USER_AGENTS = {
 // ─── Launch & context ──────────────────────────────────────────────────────
 
 export async function launchBrowser(visible = false, profileSuffix = '', options = {}) {
-  let pref = options.engine || readBrowserPref();
-
-  // AI / login / council sessions must never hijack the user's real browser —
-  // fall back to the controllable Playwright engine.
-  if (options.forceAutomated && pref.startsWith('real-')) {
-    pref = 'playwright';
-  }
+  let pref = options.engine || (options.forceAutomated ? readAiBrowserPref() : readBrowserPref());
 
   if (REAL_BROWSER_CONFIG[pref]) {
     const realConfig = REAL_BROWSER_CONFIG[pref];

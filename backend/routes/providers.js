@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import fs from 'fs';
 import { ACTIVE_FILE, sessionFile } from '../src/config.js';
-import { saveBrowserPref, getEngineList } from '../src/browser.js';
+import { saveBrowserPref, saveAiBrowserPref, getEngineList } from '../src/browser.js';
 import { MENU } from '../src/login.js';
 
 const router = Router();
@@ -53,6 +53,21 @@ router.post('/browser', (req, res) => {
     if (!match) return res.status(400).json({ error: `Invalid engine: ${engine}` });
 
     saveBrowserPref(engine);
+    res.json({ success: true, engine: match.key, name: match.name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Switch AI browser engine
+router.post('/browser/ai', (req, res) => {
+  try {
+    const { engine } = req.body;
+    const engines = getEngineList();
+    const match = engines.find(e => e.key === engine);
+    if (!match) return res.status(400).json({ error: `Invalid engine: ${engine}` });
+
+    saveAiBrowserPref(engine);
     res.json({ success: true, engine: match.key, name: match.name });
   } catch (err) {
     res.status(500).json({ error: err.message });

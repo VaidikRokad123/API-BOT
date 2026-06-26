@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 
 export default function Apply({ ctx }) {
   const [url, setUrl] = useState('');
-  const [engine, setEngine] = useState('real-chrome');
-  const [aiEngine, setAiEngine] = useState('playwright');
   const [doResearch, setDoResearch] = useState(true);
   const [running, setRunning] = useState(false);
   const [progressVisible, setProgressVisible] = useState(false);
@@ -60,7 +58,7 @@ export default function Apply({ ctx }) {
     setStatus('Running');
 
     try {
-      const data = await ctx.API.post('/apply', { url: trimmedUrl, engine, aiEngine, doResearch });
+      const data = await ctx.API.post('/apply', { url: trimmedUrl, doResearch });
 
       if (data.skipped) {
         showResult('info', '⏭️', 'Already Applied', 'This job was already successfully applied to.');
@@ -112,33 +110,7 @@ export default function Apply({ ctx }) {
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-          <div className="input-group">
-            <label className="input-label">Browser Engine (Hands)</label>
-            <select
-              className="input"
-              value={engine}
-              onChange={(e) => setEngine(e.target.value)}
-              disabled={running}
-            >
-              <option value="real-chrome">Real Chrome (CDP)</option>
-              <option value="real-brave">Real Brave (CDP)</option>
-              <option value="real-opera">Real Opera (CDP)</option>
-              <option value="playwright">Playwright</option>
-            </select>
-          </div>
-          <div className="input-group">
-            <label className="input-label">AI Engine (Brain)</label>
-            <select
-              className="input"
-              value={aiEngine}
-              onChange={(e) => setAiEngine(e.target.value)}
-              disabled={running}
-            >
-              <option value="playwright">Playwright</option>
-            </select>
-          </div>
-        </div>
+
 
         <div className="input-group">
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: 'var(--text-secondary)' }}>

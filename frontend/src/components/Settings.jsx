@@ -4,6 +4,7 @@ export default function Settings({ ctx }) {
   const [providers, setProviders] = useState([]);
   const [engines, setEngines] = useState([]);
   const [activeEngine, setActiveEngine] = useState('');
+  const [activeAiEngine, setActiveAiEngine] = useState('');
   const [loginProvider, setLoginProvider] = useState('');
   const [backendUrl, setBackendUrl] = useState('');
   const [loginMsg, setLoginMsg] = useState({ text: '', type: '' });
@@ -24,6 +25,7 @@ export default function Settings({ ctx }) {
       const statusData = await ctx.API.get('/status');
       setEngines(statusData.engines || []);
       setActiveEngine(statusData.browser || '');
+      setActiveAiEngine(statusData.aiBrowser || '');
     } catch (err) {
       console.warn('Failed to load settings data:', err);
       ctx.showToast(err.message, 'error');
@@ -54,6 +56,18 @@ export default function Settings({ ctx }) {
       const result = await ctx.API.post('/browser', { engine: engineKey });
       if (result.success) {
         ctx.showToast(`Browser set to ${result.name}`, 'success');
+        loadSettingsData();
+      }
+    } catch (err) {
+      ctx.showToast(err.message, 'error');
+    }
+  };
+
+  const handleSwitchAiEngine = async (engineKey) => {
+    try {
+      const result = await ctx.API.post('/browser/ai', { engine: engineKey });
+      if (result.success) {
+        ctx.showToast(`AI Browser set to ${result.name}`, 'success');
         loadSettingsData();
       }
     } catch (err) {
@@ -164,12 +178,12 @@ export default function Settings({ ctx }) {
         </div>
       </div>
 
-      {/* Browser Engine Card */}
+      {/* Browser Engine (Hands) Card */}
       <div className="card" style={{ marginBottom: '24px' }}>
         <div className="card-header">
           <div>
-            <div className="card-title">Browser Engine</div>
-            <div className="card-subtitle">Default engine for job application forms</div>
+            <div className="card-title">Browser Engine (Hands)</div>
+            <div className="card-subtitle">Default browser engine used for executing job application forms and tasks</div>
           </div>
         </div>
         <div className="provider-grid">
@@ -190,6 +204,38 @@ export default function Settings({ ctx }) {
                   <span>{e.key}</span>
                 </div>
                 {e.key === activeEngine && <span className="badge badge-purple">Active</span>}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* AI Engine (Brain) Browser Card */}
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <div className="card-header">
+          <div>
+            <div className="card-title">AI Engine (Brain) Browser</div>
+            <div className="card-subtitle">Browser engine used for running active AI provider automated sessions</div>
+          </div>
+        </div>
+        <div className="provider-grid">
+          {engines.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+              Loading engines...
+            </div>
+          ) : (
+            engines.map((e) => (
+              <div
+                key={e.key}
+                className={`provider-card ${e.key === activeAiEngine ? 'active' : ''}`}
+                onClick={() => handleSwitchAiEngine(e.key)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="provider-info">
+                  <h4>{e.name}</h4>
+                  <span>{e.key}</span>
+                </div>
+                {e.key === activeAiEngine && <span className="badge badge-purple">Active</span>}
               </div>
             ))
           )}
