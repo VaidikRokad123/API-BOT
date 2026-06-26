@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <section id="page-1">
+      <label for="first">First name</label>
+      <input id="first" placeholder="First name">
+      <button id="next" type="button">Next</button>
+    </section>
+    <section id="page-2" hidden>
+      <label for="email">Email</label>
+      <input id="email" type="email" placeholder="Email">
+    </section>
+    <script>
+      document.getElementById('next').addEventListener('click', () => {
+        setTimeout(() => {
+          document.getElementById('page-1').hidden = true;
+          document.getElementById('page-2').hidden = false;
+        }, 100);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "fill_text_field": "allow",
+  "select_dropdown": "allow",
+  "oauth_login": "ask",
+  "submit_application": "ask",
+  "upload_file": "allow"
+}

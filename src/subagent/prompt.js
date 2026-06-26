@@ -1,18 +1,19 @@
 import { TOOL_REGISTRY } from './tools.js';
 import { parsePhoneNumber } from '../apply/prompt.js';
 
-export function buildSubagentPrompt(task, obs, history = [], profile = null, research = null) {
+export function buildSubagentPrompt(task, obs, history = [], profile = null, research = null, domainSkill = null) {
   const toolsInfo = Object.entries(TOOL_REGISTRY).map(([name, def]) => {
     return `- ${name}: ${def.description} | Params: ${JSON.stringify(def.params)}`;
   }).join('\n');
 
   const compactFields = (obs.fields || []).map(f => {
-    const compact = { label: f.label, type: f.type, selector: f.selector };
+    const compact = { label: f.label, type: f.type, selector: f.selector, ref: f.ref };
     if (f.required) compact.required = true;
     if (f.placeholder) compact.ph = f.placeholder;
     if (f.currentValue) compact.value = f.currentValue;
     if (f.type === 'select' && f.options?.length) {
       compact.options = f.options.filter(o => !o.isPlaceholder).map(o => o.text);
+      compact.optionKind = 'native_select';
     }
     return compact;
   });
@@ -22,6 +23,7 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
   const compactButtons = (obs.buttons || []).slice(0, 60).map(b => ({
     text: b.text,
     selector: b.selector,
+    ref: b.ref,
     disabled: b.disabled || false
   }));
 
@@ -34,7 +36,11 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
   }).join('\n\n') : 'No history yet.';
 
   const ariaBlock = obs.ariaSnapshot
-    ? `\nACCESSIBILITY TREE:\n${obs.ariaSnapshot}\n`
+    ? `\nACCESSIBILITY SNAPSHOT:\n${obs.ariaSnapshot}\n`
+    : '';
+
+  const elementListBlock = obs.elementList
+    ? `\nINTERACTIVE ELEMENT LIST (role, accessible name/placeholder fallback, ref, selector, current value/checked/selected/options):\n${obs.elementList}\n`
     : '';
 
   const consoleBlock = obs.consoleTail?.length
@@ -43,6 +49,9 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
 
   let candidateBlock = '';
   let guidelinesBlock = '';
+  const domainSkillBlock = domainSkill
+    ? `\nKNOWN DOMAIN SKILL FOR THIS HOST:\n${JSON.stringify(domainSkill).slice(0, 4000)}\nPrefer this working selector/ref strategy when it still matches the current page.\n`
+    : '';
 
   if (profile) {
     const [firstName, ...rest] = (profile.name || '').split(' ');
@@ -112,21 +121,23 @@ ${researchText}
     guidelinesBlock = `
 GUIDELINES FOR FORM FILLING:
 1. Use the CANDIDATE PROFILE and JOB RESEARCH above to answer form questions.
-2. Selectors MUST be chosen exactly from the FIELDS/BUTTONS list below. Do not invent selectors.
+2. Use selector or ref values exactly from the FIELDS/BUTTONS/ELEMENT LIST below. Do not invent selectors or refs.
 3. If there are multiple form fields visible (inputs, dropdowns, checkboxes, radios, signature pads, uploads), use the "fill_form" tool to fill them all at once in a single step.
-4. For "fill_form", the actions parameter must be an array of objects: {"type": "fill|select|check|upload|signature", "selector": "...", "value": "..."}.
+4. For "fill_form", actions must be objects like {"type":"fill|select|check|upload|signature","selector":"...","ref":"...","value":"..."}.
 5. Fill ALL fields on the current page section using "fill_form" BEFORE clicking Next/Submit/Continue.
 6. Once a page section is fully filled, use the "click" tool to click the Next/Submit/Continue button.
 7. If faced with multiple login options (Google, Microsoft, LinkedIn, Email), click "Continue with Google" / "Sign in with Google".
 8. Do not mark the task "done" / "finish" until the page explicitly confirms the application has been submitted/received. Seeing a Submit button means it is NOT done.
 9. If a Google OAuth or login window pops up, use the "handle_login" tool immediately.
 10. If a CAPTCHA or verification challenge appears, use the "wait" tool to pause so the user can solve it.
+11. Native <select> controls have optionKind "native_select" and visible options; ARIA custom dropdowns/comboboxes/listboxes are "custom_combobox". Keep them distinct in select actions.
+12. For final submit/apply clicks, include args.category="submit_application" so the permission policy can pause before submitting.
 `;
   } else {
     guidelinesBlock = `
 GUIDELINES:
 1. Return exactly ONE tool call in the JSON format specified below.
-2. Selectors MUST be chosen exactly from the FIELDS/BUTTONS list. Do not invent selectors.
+2. Selectors or refs MUST be chosen exactly from the FIELDS/BUTTONS/ELEMENT LIST. Do not invent selectors.
 3. For elements inside iframes, use selectors containing " >>> " (frame-piercing) exactly as scraped.
 4. If an OAuth/Google login window pops up, use the "handle_login" tool immediately.
 5. The page's currently visible text is in CURRENT OBSERVATION → Text. READ IT — most "find / list / extract / summarize" tasks are answered directly from that text, no clicking needed.
@@ -144,6 +155,7 @@ Your goal is to achieve this TASK: "${task}"
 AVAILABLE TOOLS:
 ${toolsInfo}
 ${candidateBlock}
+${domainSkillBlock}
 ${guidelinesBlock}
 
 ROLLING HISTORY:
@@ -159,6 +171,7 @@ ${JSON.stringify(compactFieldsCapped)}
 
 BUTTONS:
 ${JSON.stringify(compactButtons)}
+${elementListBlock}
 ${ariaBlock}
 ${consoleBlock}
 FORMAT (Return ONLY raw JSON - no markdown wrapper, no explanation):

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <label id="country-label">Country</label>
+    <div id="country" role="combobox" aria-labelledby="country-label" aria-haspopup="listbox" tabindex="0">Choose</div>
+    <input id="country-value" type="hidden">
+    <ul id="country-list" role="listbox" hidden>
+      <li role="option" data-value="us">United States</li>
+      <li role="option" data-value="ca">Canada</li>
+      <li role="option" data-value="in">India</li>
+    </ul>
+    <script>
+      const combo = document.getElementById('country');
+      const list = document.getElementById('country-list');
+      combo.addEventListener('click', () => { list.hidden = false; });
+      combo.addEventListener('keydown', event => {
+        if (event.key.length === 1 || event.key === 'Backspace') list.hidden = false;
+      });
+      list.addEventListener('click', event => {
+        const option = event.target.closest('[role="option"]');
+        if (!option) return;
+        combo.textContent = option.textContent;
+        combo.setAttribute('aria-activedescendant', option.dataset.value);
+        document.getElementById('country-value').value = option.dataset.value;
+        list.hidden = true;
+      });
+    </script>
+  </body>
+</html>

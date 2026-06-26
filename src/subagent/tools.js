@@ -1,6 +1,6 @@
-import { executeAction } from '../apply/executor.js';
 import { attributeSelector, idFromLegacySelector } from '../apply/selector.js';
-import { detectAndHandlePopup } from '../apply/popup-handler.js';
+import { perceive } from '../apply/browser-subagent.js';
+import { act as executeSubagentAction, enforceActionPermission, waitForStable } from '../apply/browser-subagent.js';
 
 async function findActionElement(page, selector) {
   if (selector.includes(' >>> ')) {
@@ -35,15 +35,16 @@ export const TOOL_REGISTRY = {
     params: { url: 'string' },
     run: async (page, args) => {
       await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await waitForStable(page);
       return `Navigated to ${args.url}`;
     }
   },
   click: {
     description: 'Click an element specified by a CSS selector',
-    params: { selector: 'string' },
+    params: { selector: 'string?', ref: 'string?', category: 'submit_application|oauth_login?' },
     run: async (page, args, ctx) => {
-      await executeAction(page, { type: 'click', selector: args.selector }, ctx.profile || {});
-      return `Clicked element ${args.selector}`;
+      await executeSubagentAction(page, { type: 'click', selector: args.selector, ref: args.ref, category: args.category }, ctx);
+      return `Clicked element ${args.selector || args.ref}`;
     }
   },
   click_blank: {
@@ -53,39 +54,40 @@ export const TOOL_REGISTRY = {
       const x = args.x !== undefined ? args.x : 10;
       const y = args.y !== undefined ? args.y : 10;
       await page.mouse.click(x, y);
+      await waitForStable(page);
       return `Clicked at coordinates (${x}, ${y}) to clear focus/dismiss overlays`;
     }
   },
   fill: {
     description: 'Fill a text input with a value',
-    params: { selector: 'string', value: 'string' },
+    params: { selector: 'string?', ref: 'string?', value: 'string' },
     run: async (page, args, ctx) => {
-      await executeAction(page, { type: 'fill', selector: args.selector, value: args.value }, ctx.profile || {});
-      return `Filled input ${args.selector} with "${args.value}"`;
+      await executeSubagentAction(page, { type: 'fill', selector: args.selector, ref: args.ref, value: args.value }, ctx);
+      return `Filled input ${args.selector || args.ref} with "${args.value}"`;
     }
   },
   select: {
     description: 'Select an option from a dropdown list',
-    params: { selector: 'string', value: 'string' },
+    params: { selector: 'string?', ref: 'string?', value: 'string', optionKind: 'native_select|custom_combobox?' },
     run: async (page, args, ctx) => {
-      await executeAction(page, { type: 'select', selector: args.selector, value: args.value }, ctx.profile || {});
-      return `Selected option "${args.value}" in dropdown ${args.selector}`;
+      await executeSubagentAction(page, { type: 'select', selector: args.selector, ref: args.ref, value: args.value, optionKind: args.optionKind }, ctx);
+      return `Selected option "${args.value}" in dropdown ${args.selector || args.ref}`;
     }
   },
   check: {
     description: 'Check a checkbox or choose a radio button',
-    params: { selector: 'string' },
+    params: { selector: 'string?', ref: 'string?' },
     run: async (page, args, ctx) => {
-      await executeAction(page, { type: 'check', selector: args.selector }, ctx.profile || {});
-      return `Checked option ${args.selector}`;
+      await executeSubagentAction(page, { type: 'check', selector: args.selector, ref: args.ref }, ctx);
+      return `Checked option ${args.selector || args.ref}`;
     }
   },
   upload: {
     description: 'Upload a file using file chooser',
-    params: { selector: 'string' },
+    params: { selector: 'string?', ref: 'string?' },
     run: async (page, args, ctx) => {
-      await executeAction(page, { type: 'upload', selector: args.selector }, ctx.profile || {});
-      return `Uploaded file using ${args.selector}`;
+      await executeSubagentAction(page, { type: 'upload', selector: args.selector, ref: args.ref }, ctx);
+      return `Uploaded file using ${args.selector || args.ref}`;
     }
   },
   scroll: {
@@ -96,7 +98,7 @@ export const TOOL_REGISTRY = {
         const el = await findActionElement(page, args.selector);
         if (el) {
           await page.evaluate(e => e.scrollIntoView({ block: 'center' }), el);
-          await new Promise(r => setTimeout(r, 1200));
+      await waitForStable(page);
           return `Scrolled element ${args.selector} into view`;
         }
         return `Element ${args.selector} not found to scroll`;
@@ -142,7 +144,7 @@ export const TOOL_REGISTRY = {
       }, sign, amount).catch(() => false);
 
       // Wait for lazy-loaded content before the next observation.
-      await new Promise(r => setTimeout(r, 1500));
+      await waitForStable(page);
 
       if (!wheeled && !moved) return `Tried to scroll ${dir} but the page did not move (content may already be fully loaded or at the edge)`;
       return `Scrolled ${dir} (wheel:${wheeled}, dom:${moved}); waited for lazy content`;
@@ -150,9 +152,9 @@ export const TOOL_REGISTRY = {
   },
   hover: {
     description: 'Hover the mouse pointer over a selector',
-    params: { selector: 'string' },
+    params: { selector: 'string?', ref: 'string?' },
     run: async (page, args) => {
-      const el = await findActionElement(page, args.selector);
+      const el = await findActionElement(page, args.selector || (args.ref ? `[data-gpt-auth-ref="${args.ref}"]` : null));
       if (el) {
         const box = await el.boundingBox();
         if (box) {
@@ -207,9 +209,9 @@ export const TOOL_REGISTRY = {
   },
   extract: {
     description: 'Extract text contents of an element',
-    params: { selector: 'string?' },
+    params: { selector: 'string?', ref: 'string?' },
     run: async (page, args) => {
-      const el = await findActionElement(page, args.selector || 'body');
+      const el = await findActionElement(page, args.selector || (args.ref ? `[data-gpt-auth-ref="${args.ref}"]` : null) || 'body');
       if (el) {
         const text = await page.evaluate(e => e.innerText || e.textContent, el);
         return `Extracted text: ${String(text).slice(0, 4000)}`;
@@ -221,16 +223,47 @@ export const TOOL_REGISTRY = {
     description: 'Handle login popups or OAuth windows',
     params: {},
     run: async (page, args, ctx) => {
-      const handled = await detectAndHandlePopup(ctx.browser, page, ctx.profile || {}, ctx.aiPage);
-      return handled ? 'OAuth popup handled successfully' : 'No active OAuth popup detected';
+      ctx.permissions = ctx.permissions || {};
+      const permission = ctx.permissions.oauth_login || 'ask';
+      if (permission === 'deny') return 'OAuth login blocked by permissions policy';
+      if (permission === 'ask') {
+        await enforceActionPermission(page, {
+          type: 'click',
+          selector: 'body',
+          category: 'oauth_login',
+          description: 'OAuth login handling'
+        }, ctx);
+      }
+      const pages = typeof ctx.browser?.pages === 'function' ? await ctx.browser.pages().catch(() => []) : [];
+      const candidates = pages.length ? pages : [page];
+      for (const candidate of candidates) {
+        const url = typeof candidate.url === 'function' ? candidate.url() : '';
+        if (!/accounts\.google|login|oauth|signin|sso/i.test(url)) continue;
+        const obs = await perceive(candidate).catch(() => null);
+        const emailPattern = ctx.profile?.email
+          ? new RegExp(String(ctx.profile.email).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+          : /continue|sign in/i;
+        const preferred = obs?.elements?.find(el =>
+          /button|link|option/.test(el.role) &&
+          emailPattern.test(`${el.name} ${el.value || ''}`)
+        ) || obs?.elements?.find(el =>
+          /button|link/.test(el.role) && /continue|sign in|use another account|next/i.test(el.name)
+        );
+        if (preferred) {
+          await executeSubagentAction(candidate, { type: 'click', selector: preferred.selector, category: 'oauth_login' }, ctx);
+          await waitForStable(candidate);
+          return `Clicked OAuth/account chooser control "${preferred.name}"`;
+        }
+      }
+      return 'No OAuth popup/account chooser was actionable; use the visible authenticated browser profile or click the account chooser manually';
     }
   },
   signature: {
     description: 'Draw a signature on a canvas element',
-    params: { selector: 'string' },
+    params: { selector: 'string?', ref: 'string?' },
     run: async (page, args, ctx) => {
-      await executeAction(page, { type: 'signature', selector: args.selector }, ctx.profile || {});
-      return `Drew signature on canvas ${args.selector}`;
+      await executeSubagentAction(page, { type: 'signature', selector: args.selector, ref: args.ref }, ctx);
+      return `Drew signature on canvas ${args.selector || args.ref}`;
     }
   },
   fill_form: {
@@ -242,9 +275,8 @@ export const TOOL_REGISTRY = {
       if (!args.actions || !Array.isArray(args.actions)) {
         return 'No actions provided for fill_form';
       }
-      console.log(`\n  Executing ${args.actions.length} form action(s):`);
-      for (const act of args.actions) {
-        await executeAction(page, act, ctx.profile || {});
+      for (const formAction of args.actions) {
+        await executeSubagentAction(page, formAction, ctx);
       }
       return `Executed ${args.actions.length} form actions`;
     }

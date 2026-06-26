@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <label>Experience <output id="count">0</output></label>
+    <button id="dec" type="button">-</button>
+    <button id="inc" type="button">+</button>
+    <script>
+      let count = 0;
+      const out = document.getElementById('count');
+      document.getElementById('inc').addEventListener('click', () => {
+        count += 1;
+        out.value = String(count);
+        out.textContent = String(count);
+      });
+      document.getElementById('dec').addEventListener('click', () => {
+        count -= 1;
+        out.value = String(count);
+        out.textContent = String(count);
+      });
+    </script>
+  </body>
+</html>

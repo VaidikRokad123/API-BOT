@@ -11,14 +11,18 @@ export class ArtifactRun {
   constructor(runId, runDir) {
     this.runId = runId;
     this.runDir = runDir;
+    this.dataRunDir = path.join(process.cwd(), 'data', 'runs', runId);
     this.consoleLogPath = path.join(runDir, 'console.log');
     this.tracePath = path.join(runDir, 'trace.json');
     this.reportPath = path.join(runDir, 'report.md');
+    this.stepsPath = path.join(this.dataRunDir, 'steps.json');
     this.screenshotCount = 0;
     this.traceData = [];
+    this.stepsData = [];
 
     // Ensure the folder exists
     fs.mkdirSync(runDir, { recursive: true });
+    fs.mkdirSync(this.dataRunDir, { recursive: true });
   }
 
   static create(task) {
@@ -37,6 +41,27 @@ export class ArtifactRun {
     const fullPath = path.join(this.runDir, filename);
     await page.screenshot({ path: fullPath }).catch(() => {});
     return filename;
+  }
+
+  async savePendingActionScreenshot(page, step, action) {
+    const filename = `pending-${String(step).padStart(2, '0')}-${action.type || 'action'}.png`;
+    const fullPath = path.join(this.dataRunDir, filename);
+    await page.screenshot({ path: fullPath, fullPage: true }).catch(() => {});
+    return fullPath;
+  }
+
+  async writeActionResult(page, step, result) {
+    const filename = `action-${String(step).padStart(2, '0')}-${String(this.stepsData.length + 1).padStart(3, '0')}.png`;
+    const fullPath = path.join(this.dataRunDir, filename);
+    await page.screenshot({ path: fullPath, fullPage: true }).catch(() => {});
+    const entry = {
+      step,
+      screenshot: fullPath,
+      ...result
+    };
+    this.stepsData.push(entry);
+    fs.writeFileSync(this.stepsPath, JSON.stringify(this.stepsData, null, 2));
+    return entry;
   }
 
   appendConsole(logs) {
@@ -58,6 +83,15 @@ export class ArtifactRun {
         consoleTail: observation.consoleTail || []
       },
       result: result || ''
+    });
+    fs.writeFileSync(this.tracePath, JSON.stringify(this.traceData, null, 2));
+  }
+
+  appendStateTransition(transition) {
+    this.traceData.push({
+      type: 'state_transition',
+      at: new Date().toISOString(),
+      ...transition
     });
     fs.writeFileSync(this.tracePath, JSON.stringify(this.traceData, null, 2));
   }

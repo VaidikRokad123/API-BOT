@@ -8,13 +8,21 @@
     "login": "node agent.js login",
     "chat": "node agent.js chat",
     "apply": "node agent.js apply",
-    "test": "node --test test/dropdown.test.js test/completion.test.js test/apply-prompt.test.js test/selector.test.js"
+    "test": "node --test test/dropdown.test.js test/completion.test.js test/apply-prompt.test.js test/selector.test.js",
+    "test:fixtures": "playwright test tests/fixtures"
   },
   "dependencies": {
+    "p-retry": "^6.2.1",
+    "pino": "^9.7.0",
     "playwright": "^1.61.0",
     "puppeteer": "^25.1.0",
     "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "xstate": "^5.20.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0"
   },
   "keywords": [
     "automation",

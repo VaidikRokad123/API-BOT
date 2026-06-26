@@ -17,9 +17,23 @@
   "noticePeriod": "30",
   "reasonForLeaving": "Looking for better growth opportunities and a more challenging technical environment.",
   "skills": [
-    "JavaScript", "TypeScript", "React", "Node.js", "Express",
-    "MongoDB", "PostgreSQL", "Python", "Docker", "AWS", "REST APIs",
-    "Git", "HTML", "CSS", "Next.js", "Playwright", "Automation"
+    "JavaScript",
+    "TypeScript",
+    "React",
+    "Node.js",
+    "Express",
+    "MongoDB",
+    "PostgreSQL",
+    "Python",
+    "Docker",
+    "AWS",
+    "REST APIs",
+    "Git",
+    "HTML",
+    "CSS",
+    "Next.js",
+    "Playwright",
+    "Automation"
   ],
   "education": {
     "degree": "Bachelor of Engineering",
@@ -37,15 +51,5 @@
   "veteranStatus": "No",
   "disabilityStatus": "No",
   "gender": "Male",
-  "ethnicity": "Asian",
-  "credentials": {
-    "google": {
-      "username": "your-google-email@gmail.com",
-      "password": "your-google-password"
-    },
-    "default": {
-      "username": "your-standard-username-or-email",
-      "password": "your-standard-password"
-    }
-  }
+  "ethnicity": "Asian"
 }

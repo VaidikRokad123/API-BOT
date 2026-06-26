@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <label for="sig">Signature</label>
+    <canvas id="sig" width="300" height="120" style="border:1px solid black"></canvas>
+    <script>
+      const canvas = document.getElementById('sig');
+      const ctx = canvas.getContext('2d');
+      let drawing = false;
+      canvas.addEventListener('mousedown', event => {
+        drawing = true;
+        ctx.beginPath();
+        ctx.moveTo(event.offsetX, event.offsetY);
+      });
+      canvas.addEventListener('mousemove', event => {
+        if (!drawing) return;
+        ctx.lineTo(event.offsetX, event.offsetY);
+        ctx.stroke();
+      });
+      canvas.addEventListener('mouseup', () => { drawing = false; });
+    </script>
+  </body>
+</html>

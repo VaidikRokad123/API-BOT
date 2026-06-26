@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import { openAiSession, sendMessage } from '../ai.js';
 import { launchBrowser, newStealthContext } from '../browser.js';
 import { PROFILE_FILE } from '../config.js';
@@ -10,11 +9,54 @@ import { buildSubagentPrompt } from './prompt.js';
 import { TOOL_REGISTRY } from './tools.js';
 import { verifyGoal } from './verify.js';
 import { sanitizeGptJson } from '../apply/prompt.js';
-import { scrapePageState, installClickListenerTracker } from '../apply/scraper.js';
-import { autoHandleSpecials } from '../apply/executor.js';
 import { detectCaptcha, pauseForUser } from '../apply/captcha.js';
 import { isSubmissionConfirmed } from '../apply/completion.js';
 import { researchJob } from '../apply/research.js';
+import { validateAiAction } from '../apply/browser-subagent.js';
+import { verdictWithFailureReason } from '../apply/failure-taxonomy.js';
+import { createSubagentFsm } from './fsm.js';
+import { createRunLogger } from './logger.js';
+import { loadDomainSkill, saveDomainSkill } from './domain-skills.js';
+
+function readPermissions() {
+  try {
+    return JSON.parse(fs.readFileSync('data/permissions.json', 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+async function parseAndValidateAction(raw, aiPage, logger) {
+  try {
+    return validateAiAction(sanitizeGptJson(raw));
+  } catch (err) {
+    logger?.warn?.({ err: err.message }, 'ai_action_invalid_retrying');
+    const retry = await sendMessage(
+      aiPage,
+      `Your previous response was invalid: ${err.message}\nReturn ONLY one JSON object matching the requested tool schema. No markdown.`
+    );
+    return validateAiAction(sanitizeGptJson(retry));
+  }
+}
+
+function isSubmitAction(action) {
+  if (action.tool !== 'click') return false;
+  if (action.args?.category === 'submit_application') return true;
+  const haystack = `${action.args?.selector || ''} ${action.args?.ref || ''}`;
+  return /\b(submit|apply|complete|finish)\b/i.test(haystack);
+}
+
+function isFormMutationAction(action) {
+  return ['fill', 'select', 'check', 'upload', 'signature', 'fill_form'].includes(action.tool);
+}
+
+function pageUrl(page) {
+  try {
+    return typeof page.url === 'function' ? page.url() : '';
+  } catch {
+    return '';
+  }
+}
 
 export async function runBrowserSubagent(task, options = {}) {
   const visible = options.hidden !== true;
@@ -26,44 +68,57 @@ export async function runBrowserSubagent(task, options = {}) {
     try {
       profile = JSON.parse(fs.readFileSync(PROFILE_FILE, 'utf8'));
     } catch (e) {
-      console.warn('  ⚠️  Failed to parse profile.json:', e.message);
+      process.stderr.write(`Failed to parse profile.json: ${e.message}\n`);
     }
   }
 
-  console.log('\n╔════════════════════════════════════════╗');
-  console.log('║        Browser Subagent Loop           ║');
-  console.log('╚════════════════════════════════════════╝');
-  console.log(`Task: ${task}\n`);
-
   const run = ArtifactRun.create(task);
+  let logger = await createRunLogger(run.runId, options.isApply ? 'research' : 'fill');
+  logger.info({ task, options: { isApply: !!options.isApply, engine: options.engine, aiEngine } }, 'subagent_start');
 
   const { browser: aiBrowser, page: aiPage } = await openAiSession(false, { engine: aiEngine });
   const appBrowser = await launchBrowser(visible, 'subagent', { engine: options.engine });
   const appCtx = await newStealthContext(appBrowser);
   const page = await appCtx.newPage();
-
   const consoleBuffer = attachConsoleCapture(page);
 
-  // Hook click listeners BEFORE navigation so custom (React/Vue) buttons are detected.
-  await installClickListenerTracker(page);
-
   let research = null;
-  if (options.jobUrl) {
-    console.log(`  Navigating to initial job URL: ${options.jobUrl}`);
-    await page.goto(options.jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await new Promise(r => setTimeout(r, 3000));
+  let applicationUrl = options.jobUrl || '';
+  const permissions = readPermissions();
+  const domainSkill = options.jobUrl ? loadDomainSkill(options.jobUrl) : null;
+  const fsm = await createSubagentFsm({ isApply: !!options.isApply, run, logger });
 
-    const initialPageText = await page.evaluate(() => document.body.innerText);
+  const ctx = {
+    profile,
+    research,
+    browser: appBrowser,
+    aiPage,
+    run,
+    step: 1,
+    permissions,
+    logger,
+    state: fsm.state
+  };
 
-    console.log('  🔍 Analyzing if this is a landing page or the actual application form...');
-    const links = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('a')).map(a => ({
-        text: a.innerText.trim(),
-        href: a.href
-      })).filter(l => l.href && l.href.startsWith('http') && l.text.length > 0);
-    });
+  const history = [];
+  let finishPayload = null;
 
-    const linkFinderPrompt = `You are an assistant helping to navigate to a job application form.
+  try {
+    if (options.jobUrl) {
+      logger.info({ url: options.jobUrl }, 'navigate_initial_job_url');
+      await page.goto(options.jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await new Promise(r => setTimeout(r, 3000));
+
+      const initialPageText = await page.evaluate(() => document.body.innerText).catch(() => '');
+      logger.info('analyze_landing_or_form');
+      const links = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('a')).map(a => ({
+          text: a.innerText.trim(),
+          href: a.href
+        })).filter(l => l.href && l.href.startsWith('http') && l.text.length > 0);
+      }).catch(() => []);
+
+      const linkFinderPrompt = `You are an assistant helping to navigate to a job application form.
 We are on the page: ${options.jobUrl}
 
 Here is a snippet of text from the page:
@@ -72,159 +127,111 @@ ${initialPageText.slice(0, 2000)}
 Here are some links found on the page (showing text and href):
 ${links.slice(0, 100).map(l => `- "${l.text}": ${l.href}`).join('\n')}
 
-Identify if this page is already the application form (e.g. it has inputs for name, email, resume upload, etc.), or if we need to click a link to go to the actual application form (e.g. "Apply", "Apply Now", "Apply on Company Site").
+Identify if this page is already the application form, or if we need to click a link to go to the actual application form.
 
-Return your response in this exact JSON format:
-{
-  "isForm": true, // true if this page is already the form, false if we need to click a link
-  "targetUrl": "ALREADY_FORM" // "ALREADY_FORM" if this page is the form, or the exact href URL to navigate to
-}
-Return ONLY the JSON, nothing else.`;
+Return ONLY this JSON:
+{"isForm":true,"targetUrl":"ALREADY_FORM"}`;
 
-    const rawDecision = await sendMessage(aiPage, linkFinderPrompt);
-    let decision = { isForm: true, targetUrl: 'ALREADY_FORM' };
-    try {
-      decision = sanitizeGptJson(rawDecision);
-    } catch (e) {
-      // Best effort fallback
+      let decision = { isForm: true, targetUrl: 'ALREADY_FORM' };
+      try {
+        decision = sanitizeGptJson(await sendMessage(aiPage, linkFinderPrompt));
+      } catch {
+        decision = { isForm: true, targetUrl: 'ALREADY_FORM' };
+      }
+
+      if (!decision.isForm && decision.targetUrl && decision.targetUrl !== 'ALREADY_FORM') {
+        logger.info({ targetUrl: decision.targetUrl }, 'navigate_application_form');
+        await page.goto(decision.targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await new Promise(r => setTimeout(r, 3000));
+      } else {
+        logger.info('active_application_form');
+      }
+
+      const pageText = await page.evaluate(() => document.body.innerText).catch(() => '');
+      applicationUrl = pageUrl(page) || options.jobUrl;
+
+      if (options.doResearch !== false) {
+        logger.info('research_start');
+        research = await researchJob(aiPage, applicationUrl, pageText, profile);
+        ctx.research = research;
+      } else {
+        logger.info('research_skipped');
+      }
+      fsm.send(options.doResearch === false ? 'SKIP_RESEARCH' : 'RESEARCH_DONE', {
+        company: research?.companyName,
+        role: research?.jobTitle
+      });
     }
 
-    if (!decision.isForm && decision.targetUrl && decision.targetUrl !== 'ALREADY_FORM') {
-      console.log(`  ↪ AI identified main application link: ${decision.targetUrl}`);
-      console.log('  Navigating to actual application form...');
-      await page.goto(decision.targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await new Promise(r => setTimeout(r, 3000));
-    } else {
-      console.log('  ✓ AI identified this page as the active application form.');
-    }
-
-    const pageText = await page.evaluate(() => document.body.innerText);
-    const applicationUrl = page.url ? await page.url() : options.jobUrl;
-    
-    if (options.doResearch !== false) {
-      console.log('  🔍 Conducting job/company research...');
-      research = await researchJob(aiPage, applicationUrl, pageText, profile);
-    } else {
-      console.log('  ⚡ Skipping job/company research as requested.');
-    }
-  }
-
-  const ctx = {
-    profile,
-    research,
-    browser: appBrowser,
-    aiPage,
-    run,
-    step: 1
-  };
-
-  const history = [];
-  let finishPayload = null;
-
-  try {
     for (let step = 1; step <= maxSteps; step++) {
       ctx.step = step;
-      console.log(`\n  --- Step ${step} ---`);
+      logger = await createRunLogger(run.runId, fsm.state);
+      ctx.logger = logger;
+      ctx.state = fsm.state;
+      logger.info({ step, state: fsm.state }, 'subagent_step');
 
-      // CAPTCHA check
       const hasCaptcha = await detectCaptcha(page).catch(() => false);
       if (hasCaptcha) {
-        console.log('\n⚠️  [PAUSE] CAPTCHA, verification, or robot check detected!');
-        console.log('   Please solve the verification in the browser window.');
-        console.log('   Once solved, press ENTER in this terminal to resume...');
+        logger.warn({ step }, 'captcha_detected');
+        process.stdout.write('\n[PAUSE] CAPTCHA, verification, or robot check detected. Solve it in the browser, then press ENTER.\n');
         await pauseForUser('   Press ENTER to resume > ');
-        step--; // retry this step
+        step--;
         continue;
       }
 
-      // Direct success confirmation check (apply only)
-      if (options.isApply) {
-        const pageState = await scrapePageState(page).catch(() => null);
-        if (pageState && isSubmissionConfirmed(pageState)) {
-          await page.screenshot({ path: path.join(process.cwd(), 'application_done.png'), fullPage: true }).catch(() => {});
-          console.log('\n✅ Application submission confirmed! Screenshot → application_done.png\n');
-          break;
-        }
-      }
-
-      // Auto handle specials (apply only)
-      if (options.isApply && ctx.profile && Object.keys(ctx.profile).length) {
-        const pageState = await scrapePageState(page).catch(() => null);
-        if (pageState) {
-          await autoHandleSpecials(page, pageState, ctx.profile);
-        }
-      }
-
       const observation = await buildObservation(page, consoleBuffer);
-      
-      // Save screenshot for the step
-      await run.saveScreenshot(page, step, 'step');
-
-      // Append fresh logs to trace
-      run.appendConsole(consoleBuffer.getBuffer());
-      consoleBuffer.clear();
-
-      // Only inject the candidate profile + form-filling guidelines for actual
-      // application runs. Generic /browser tasks get the task-neutral prompt.
-      const promptProfile = options.isApply ? ctx.profile : null;
-      const prompt = buildSubagentPrompt(task, observation, history, promptProfile, ctx.research);
-      console.log('  🤖 Prompting subagent brain...');
-      
-      let raw;
-      try {
-        raw = await sendMessage(aiPage, prompt);
-      } catch (e) {
-        console.error('  ⚠ AI communication error:', e.message);
+      if (options.isApply && isSubmissionConfirmed(observation)) {
+        fsm.send('SUBMITTED', { step });
+        logger.info({ step }, 'submission_confirmed');
         break;
       }
 
-      let action = null;
+      await run.saveScreenshot(page, step, 'step');
+      run.appendConsole(consoleBuffer.getBuffer());
+      consoleBuffer.clear();
+
+      const promptProfile = options.isApply ? ctx.profile : null;
+      const prompt = buildSubagentPrompt(task, observation, history, promptProfile, ctx.research, domainSkill);
+      logger.info({ step }, 'prompt_subagent_brain');
+
+      let action;
       try {
-        action = sanitizeGptJson(raw);
+        const raw = await sendMessage(aiPage, prompt);
+        action = await parseAndValidateAction(raw, aiPage, logger);
       } catch (e) {
-        console.log('  ⚠ JSON parsing failed, asking AI to retry...');
-        try {
-          const retry = await sendMessage(aiPage, 'Your last response had invalid JSON. Re-send ONLY the raw JSON object, no markdown, no explanation.');
-          action = sanitizeGptJson(retry);
-        } catch (err) {
-          console.error('  ✗ Parse failed:', err.message);
-          break;
-        }
+        logger.error({ err: e.message }, 'ai_action_failed');
+        fsm.send('FAIL', { reason: e.message });
+        break;
       }
 
-      if (!action) continue;
-
-      console.log(`  💭 Thought: ${action.reasoning}`);
-      console.log(`  📋 Action: ${action.tool} (status: ${action.status})`);
+      logger.info({ reasoning: action.reasoning, tool: action.tool, status: action.status }, 'ai_action');
 
       if (action.tool === 'finish' || action.status === 'done') {
-        // Capture the agent's compiled answer/report so it survives into the
-        // verdict + report (extraction/report tasks live or die on this).
         finishPayload = action.args || {};
-        console.log('  ✓ Task marked completed by subagent.');
+        fsm.send('FINISH', { step });
         break;
       }
 
       const tool = TOOL_REGISTRY[action.tool];
       if (!tool) {
-        console.warn(`  ⚠ Unknown tool: ${action.tool}`);
-        history.push({
-          step,
-          tool: action.tool,
-          args: action.args,
-          result: `Unknown tool: ${action.tool}`,
-          reasoning: action.reasoning
-        });
+        const result = `Unknown tool: ${action.tool}`;
+        logger.warn({ tool: action.tool }, 'unknown_tool');
+        history.push({ step, tool: action.tool, args: action.args, result, reasoning: action.reasoning });
+        run.writeStepTrace(step, action, observation, result);
         continue;
       }
+
+      if (isSubmitAction(action)) fsm.send('SUBMIT_READY', { step, tool: action.tool });
+      else if (isFormMutationAction(action)) fsm.send('NEED_MORE_FILL', { step, tool: action.tool });
+      else if (action.tool === 'click') fsm.send('REVIEW', { step, tool: action.tool });
 
       let result;
       try {
         result = await tool.run(page, action.args || {}, ctx);
-        console.log(`  → Result: ${result}`);
+        logger.info({ result }, 'tool_result');
       } catch (err) {
         result = `Tool failed: ${err.message}`;
-        console.error(`  ✗ ${result}`);
+        logger.error({ err: err.message, tool: action.tool }, 'tool_failed');
       }
 
       history.push({
@@ -234,37 +241,37 @@ Return ONLY the JSON, nothing else.`;
         result,
         reasoning: action.reasoning
       });
-
       run.writeStepTrace(step, action, observation, result);
 
-      // wait settled
-      await new Promise(r => setTimeout(r, 1000));
+      if (isSubmitAction(action)) {
+        fsm.send('SUBMITTED', { step });
+        break;
+      }
+      if (fsm.state === 'review') fsm.send('NEED_MORE_FILL', { step });
     }
 
     const agentReport = finishPayload
       ? (finishPayload.report || finishPayload.result || finishPayload.summary || finishPayload.answer || '')
       : '';
 
-    const verdict = await verifyGoal(page, task, aiPage, consoleBuffer, agentReport);
-    console.log(`\n========================================`);
-    console.log(`  VERDICT: ${verdict.passed ? '✅ PASSED' : '❌ FAILED'}`);
-    console.log(`  Reason: ${verdict.reason}`);
-    if (agentReport) {
-      console.log(`\n  📄 Subagent answer:\n${String(agentReport).slice(0, 1200)}`);
-    }
-    console.log(`========================================`);
+    const verdict = verdictWithFailureReason(await verifyGoal(page, task, aiPage, consoleBuffer, agentReport));
+    logger.info({ verdict, agentReport: String(agentReport || '').slice(0, 1200) }, 'subagent_verdict');
 
     run.writeReport(history, verdict, agentReport);
+    if (options.isApply && verdict.passed) {
+      saveDomainSkill(applicationUrl || options.jobUrl, history, research);
+    }
 
     return {
       runId: run.runId,
       verdict,
-      artifactsDir: run.runDir
+      artifactsDir: run.runDir,
+      dataRunDir: run.dataRunDir,
+      research
     };
-
   } finally {
     await aiBrowser.close().catch(() => {});
     await appBrowser.close().catch(() => {});
-    console.log(`\n[Done] Subagent run completed. Report written to: ${run.reportPath}\n`);
+    logger.info({ reportPath: run.reportPath, dataRunDir: run.dataRunDir }, 'subagent_done');
   }
 }

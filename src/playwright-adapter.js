@@ -181,8 +181,8 @@ export class PlaywrightPage {
 
   // ariaSnapshot — the reason to pick this engine. Compact accessibility tree
   // (role + accessible name + state), far fewer tokens than raw DOM.
-  async ariaSnapshot() {
-    try { return await this.page.locator('body').ariaSnapshot(); }
+  async ariaSnapshot(options = {}) {
+    try { return await this.page.locator('body').ariaSnapshot(options); }
     catch { return null; }
   }
 

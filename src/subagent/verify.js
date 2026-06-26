@@ -3,7 +3,6 @@ import { sendMessage } from '../ai.js';
 import { sanitizeGptJson } from '../apply/prompt.js';
 
 export async function verifyGoal(page, task, aiPage, consoleBuffer = null, agentReport = '') {
-  console.log('  🔍 Verifying task outcome...');
   const obs = await buildObservation(page, consoleBuffer);
 
   const reportBlock = agentReport
@@ -20,15 +19,10 @@ Text Snippet: ${obs.pageText?.slice(0, 3000)}
 ${reportBlock}
 Verify if the task has been achieved.
 - For ACTION tasks (submit/login/navigate): judge by the page state (url, title, success text).
-- For EXTRACTION / LIST / SUMMARY / REPORT tasks: the deliverable is the SUBAGENT'S PRODUCED ANSWER above. If it contains the requested information and is consistent with the page Text, mark passed=true — do NOT require a success banner on the page. Only fail if the answer is missing, empty, or clearly fabricated/contradicted by the page.
+- For EXTRACTION / LIST / SUMMARY / REPORT tasks: the deliverable is the SUBAGENT'S PRODUCED ANSWER above. If it contains the requested information and is consistent with the page Text, mark passed=true.
 
-Return your response in this exact JSON format:
-{
-  "passed": true,
-  "reason": "Clear explanation of why it passed or failed",
-  "evidence": "Concrete evidence seen on the page (e.g. success message text, URL path)"
-}
-Return ONLY the raw JSON object, no markdown, no explanation.`;
+Return ONLY this JSON:
+{"passed":true,"reason":"Clear explanation","evidence":"Concrete evidence"}`;
 
   try {
     const raw = await sendMessage(aiPage, verifyPrompt);
@@ -39,7 +33,6 @@ Return ONLY the raw JSON object, no markdown, no explanation.`;
       evidence: result.evidence || 'N/A'
     };
   } catch (e) {
-    console.error('  ⚠ Verification evaluation failed:', e.message);
     return {
       passed: false,
       reason: `Verification process failed with error: ${e.message}`,

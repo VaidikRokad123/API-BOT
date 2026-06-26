@@ -144,8 +144,7 @@ Fill in `data\profile.json` — this is what the agent uses to answer applicatio
 | `resumeLastUpdated` | Date string (e.g. `"2026-06-19"`) indicating when the plain-text resume was updated |
 | `resumePdfPath` | Absolute path to your resume PDF (double backslashes: `"D:\\Docs\\resume.pdf"`) |
 | `resumePdfLastUpdated` | Date string indicating when the PDF resume was updated |
-| `credentials.google` | Your Google username and password (used for automatic Google Sign-In during applications) |
-| `credentials.default` | A fallback username and password for standard login forms |
+| Browser auth | Use `/apply --real` or set the real-browser engine so applications reuse your already-authenticated Chrome/Brave/Opera profile. Passwords are not stored in `profile.json`. |
 
 > [!TIP]
 > The agent validates that `resumeLastUpdated` and `resumePdfLastUpdated` match. If they differ, `/apply` prints a warning to remind you to update your plain-text `resume` content alongside your PDF!
