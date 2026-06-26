@@ -25,13 +25,18 @@ export default function App() {
   // API Wrapper
   const API = {
     async get(url) {
-      const res = await fetch(`${BACKEND_URL}/api${url}`);
+      const res = await fetch(`${BACKEND_URL}/api${url}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       return res.json();
     },
     async post(url, body = {}) {
       const res = await fetch(`${BACKEND_URL}/api${url}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
         body: JSON.stringify(body)
       });
       return res.json();
