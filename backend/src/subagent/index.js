@@ -267,7 +267,8 @@ Return ONLY this JSON:
       verdict,
       artifactsDir: run.runDir,
       dataRunDir: run.dataRunDir,
-      research
+      research,
+      report: agentReport
     };
   } finally {
     await aiBrowser.close().catch(() => {});

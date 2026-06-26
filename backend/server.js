@@ -48,6 +48,16 @@ app.use(express.static(frontendPath));
 // Make io accessible to routes
 app.set('io', io);
 
+// Health Check Route
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'UP',
+    uptime: process.uptime(),
+    timestamp: new Date(),
+    database: mongoose.connection.readyState === 1 ? 'CONNECTED' : 'DISCONNECTED'
+  });
+});
+
 // ─── API Routes ────────────────────────────────────────────────────────────
 app.use('/api', statusRoutes);
 app.use('/api', providerRoutes);

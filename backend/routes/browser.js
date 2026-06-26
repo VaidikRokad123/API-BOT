@@ -17,8 +17,8 @@ router.post('/browser/task', async (req, res) => {
       hidden: hidden || false
     });
 
-    io.emit('browser:done', { task, verdict: result?.verdict, runId: result?.runId });
-    res.json({ success: true, verdict: result?.verdict, runId: result?.runId, artifactsDir: result?.artifactsDir });
+    io.emit('browser:done', { task, verdict: result?.verdict, runId: result?.runId, report: result?.report });
+    res.json({ success: true, verdict: result?.verdict, runId: result?.runId, report: result?.report, artifactsDir: result?.artifactsDir });
   } catch (err) {
     const io = req.app.get('io');
     io.emit('browser:error', { error: err.message });

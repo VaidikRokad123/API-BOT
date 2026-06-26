@@ -65,7 +65,8 @@ export default function Browser({ ctx }) {
       setResult({
         passed,
         reason: data.verdict?.reason || '',
-        runId: data.runId || null
+        runId: data.runId || null,
+        report: data.report || null
       });
     } catch (err) {
       setLogs(prev => [...prev, `✗ Error: ${err.message}`]);
@@ -186,8 +187,23 @@ export default function Browser({ ctx }) {
             <div className="verdict-icon">{result.passed ? '✅' : '❌'}</div>
             <h3>{result.passed ? 'Task Completed' : 'Task Failed'}</h3>
             <p>{result.reason}</p>
+            {result.report && (
+              <div className="report-container" style={{
+                marginTop: '16px',
+                textAlign: 'left',
+                background: 'rgba(255, 255, 255, 0.05)',
+                padding: '16px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-subtle)',
+                width: '100%',
+                boxSizing: 'border-box'
+              }}>
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>Agent Report / Answer</h4>
+                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: '1.5' }}>{result.report}</p>
+              </div>
+            )}
             {result.runId && (
-              <p style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+              <p style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
                 Run: {result.runId}
               </p>
             )}

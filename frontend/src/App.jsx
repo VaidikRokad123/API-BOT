@@ -19,8 +19,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const socketRef = useRef(null);
 
-  // Connection URL dynamic resolution (Vite Env + localStorage fallback)
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || localStorage.getItem('BACKEND_URL') || '';
+  // Connection URL dynamic resolution (localStorage override + Vite Env fallback)
+  const BACKEND_URL = localStorage.getItem('BACKEND_URL') || import.meta.env.VITE_BACKEND_URL || '';
 
   // API Wrapper
   const API = {
