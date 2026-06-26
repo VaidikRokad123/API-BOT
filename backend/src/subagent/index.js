@@ -17,6 +17,16 @@ import { verdictWithFailureReason } from '../apply/failure-taxonomy.js';
 import { createSubagentFsm } from './fsm.js';
 import { createRunLogger } from './logger.js';
 import { loadDomainSkill, saveDomainSkill } from './domain-skills.js';
+import { checkDomain, wrapContent, scanContent } from './idpi.js';
+
+const DEFAULT_ALLOWED_DOMAINS = [
+  '*.perplexity.ai', 'perplexity.ai',
+  '*.chatgpt.com', 'chatgpt.com',
+  '*.openai.com', 'openai.com',
+  '*.grok.com', 'grok.com',
+  '*.x.ai', 'x.ai',
+  'localhost', '127.0.0.1'
+];
 
 function readPermissions() {
   try {
@@ -180,6 +190,34 @@ Return ONLY this JSON:
       }
 
       const observation = await buildObservation(page, consoleBuffer);
+
+      // IDPI (Indirect Prompt Injection) Defense & Content Wrapping
+      if (options.idpiEnabled !== false) {
+        const currentUrl = page.url() || '';
+        const allowed = options.allowedDomains || DEFAULT_ALLOWED_DOMAINS;
+        const strict = options.idpiStrictMode === true;
+
+        const domainCheck = checkDomain(currentUrl, allowed, strict);
+        if (domainCheck.threat) {
+          logger.warn({ url: currentUrl, blocked: domainCheck.blocked, reason: domainCheck.reason }, 'idpi_domain_flagged');
+          if (domainCheck.blocked) {
+            fsm.send('FAIL', { reason: domainCheck.reason });
+            break;
+          }
+        }
+
+        const textCheck = scanContent(observation.pageText, strict);
+        if (textCheck.threat) {
+          logger.warn({ reason: textCheck.reason, pattern: textCheck.pattern, blocked: textCheck.blocked }, 'idpi_content_flagged');
+          if (textCheck.blocked) {
+            fsm.send('FAIL', { reason: textCheck.reason });
+            break;
+          }
+        }
+
+        observation.pageText = wrapContent(observation.pageText, currentUrl);
+      }
+
       if (options.isApply && isSubmissionConfirmed(observation)) {
         fsm.send('SUBMITTED', { step });
         logger.info({ step }, 'submission_confirmed');

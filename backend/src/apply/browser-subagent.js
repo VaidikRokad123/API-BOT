@@ -208,7 +208,15 @@ async function getAriaSnapshot(page) {
 export async function perceive(page, consoleBuffer = null) {
   const ariaSnapshot = await getAriaSnapshot(page);
   const extracted = await page.evaluate(() => {
-    let refSeq = 0;
+    let maxRef = 0;
+    for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
+      const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxRef) maxRef = num;
+      }
+    }
+    let refSeq = maxRef;
     const interestingSelector = [
       'input', 'textarea', 'select', 'button', 'a[href]', 'canvas',
       '[role]', '[contenteditable="true"]', '[tabindex]', '[onclick]',
@@ -260,7 +268,7 @@ export async function perceive(page, consoleBuffer = null) {
       return 'generic';
     };
     const accessibleName = el => {
-      const name = text(
+      let name = text(
         el.getAttribute('aria-label') ||
         labelText(el) ||
         el.getAttribute('placeholder') ||
@@ -270,6 +278,35 @@ export async function perceive(page, consoleBuffer = null) {
         el.getAttribute('name') ||
         el.id
       );
+      if (!name || name === '(unnamed)') {
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'button' || el.getAttribute('role') === 'button') {
+          if (el.getAttribute('type') === 'submit') {
+            name = 'Submit query';
+          } else {
+            const hasSvg = el.querySelector('svg');
+            if (hasSvg) {
+              const svgHtml = hasSvg.outerHTML.toLowerCase();
+              const className = (el.className || '').toLowerCase();
+              if (
+                svgHtml.includes('arrow') ||
+                svgHtml.includes('send') ||
+                svgHtml.includes('submit') ||
+                svgHtml.includes('right') ||
+                svgHtml.includes('enter') ||
+                svgHtml.includes('up') ||
+                className.includes('submit') ||
+                className.includes('send') ||
+                el.getAttribute('data-testid') === 'send-button'
+              ) {
+                name = 'Submit query';
+              } else {
+                name = 'Button icon';
+              }
+            }
+          }
+        }
+      }
       return name || '(unnamed)';
     };
     const cssSelectorFor = ref => `[data-gpt-auth-ref="${ref}"]`;
@@ -408,7 +445,9 @@ async function focusAndType(page, el, value) {
     const box = await el.boundingBox?.().catch(() => null);
     if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   });
-  await page.keyboard.press('Control+A');
+  await page.keyboard.down('Control');
+  await page.keyboard.press('a');
+  await page.keyboard.up('Control');
   await page.keyboard.press('Backspace');
   await page.keyboard.type(String(value ?? ''), { delay: 1 });
 }
@@ -438,7 +477,9 @@ async function customSelect(page, el, value) {
   const target = cleanText(value);
   await page.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }), el).catch(() => {});
   await el.click();
-  await page.keyboard.press('Control+A').catch(() => {});
+  await page.keyboard.down('Control').catch(() => {});
+  await page.keyboard.press('a').catch(() => {});
+  await page.keyboard.up('Control').catch(() => {});
   await page.keyboard.type(target, { delay: 1 }).catch(() => {});
   await new Promise(resolve => setTimeout(resolve, 200));
 

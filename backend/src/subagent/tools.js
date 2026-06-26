@@ -171,8 +171,17 @@ export const TOOL_REGISTRY = {
     description: 'Press a keyboard key',
     params: { key: 'string' },
     run: async (page, args) => {
-      await page.keyboard.press(args.key);
-      return `Pressed key "${args.key}"`;
+      let key = args.key;
+      if (key && key.includes('+')) {
+        const parts = key.split('+');
+        const last = parts[parts.length - 1];
+        if (last && last.length === 1) {
+          parts[parts.length - 1] = last.toLowerCase();
+          key = parts.join('+');
+        }
+      }
+      await page.keyboard.press(key);
+      return `Pressed key "${key}"`;
     }
   },
   wait: {
@@ -214,7 +223,7 @@ export const TOOL_REGISTRY = {
       const el = await findActionElement(page, args.selector || (args.ref ? `[data-gpt-auth-ref="${args.ref}"]` : null) || 'body');
       if (el) {
         const text = await page.evaluate(e => e.innerText || e.textContent, el);
-        return `Extracted text: ${String(text).slice(0, 4000)}`;
+        return `Extracted text: ${String(text).slice(0, 20000)}`;
       }
       return `Element ${args.selector || 'body'} not found`;
     }

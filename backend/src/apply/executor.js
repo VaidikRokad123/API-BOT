@@ -307,7 +307,7 @@ export async function executeAction(page, action, profile) {
           await el.click().catch(() => {});
           // Select all text and backspace using keyboard to notify modern UI frameworks (React/Vue/etc.)
           await page.keyboard.down('Control').catch(() => {});
-          await page.keyboard.press('A').catch(() => {});
+          await page.keyboard.press('a').catch(() => {});
           await page.keyboard.up('Control').catch(() => {});
           await page.keyboard.press('Backspace').catch(() => {});
           // Fallback clear in DOM (handles non-focused elements)
@@ -368,7 +368,7 @@ export async function executeAction(page, action, profile) {
             }
             await el.click().catch(() => {});
             await page.keyboard.down('Control');
-            await page.keyboard.press('A');
+            await page.keyboard.press('a');
             await page.keyboard.up('Control');
             await el.type(String(match.value));
             await page.keyboard.press('Tab');
@@ -530,7 +530,7 @@ export async function executeAction(page, action, profile) {
             // Searchable comboboxes may render matches only after text input.
             await el.click().catch(() => {});
             await page.keyboard.down('Control');
-            await page.keyboard.press('A');
+            await page.keyboard.press('a');
             await page.keyboard.up('Control');
             await el.type(String(action.value ?? ''));
             await new Promise(r => setTimeout(r, 700));

@@ -146,6 +146,7 @@ GUIDELINES:
 8. Only use "screenshot" when the task truly needs visual inspection; you cannot read pixels from a screenshot, so prefer the Text.
 9. When the task is complete, call the "finish" tool with status "done" and put your FULL compiled answer/report (the actual deliverable: items, roles, links, summary) in args.report as a string. This text becomes the run's report — make it complete and self-contained.
 10. Use status "blocked" ONLY if genuinely unable to proceed after scrolling/reading (e.g. login wall). Explain what blocked you in args.report.
+11. CRITICAL MULTI-SITE INSTRUCTION: If the TASK requests performing actions across multiple websites or platforms (e.g., "do this in Perplexity then open ChatGPT... and make report in Grok"), you MUST physically navigate the browser to each site, enter the corresponding input/prompt, extract the response, and carry that context to the next site in the exact order requested. Do NOT skip any site or try to generate the final output early on a previous site.
 `;
   }
 

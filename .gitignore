@@ -53,6 +53,8 @@ Thumbs.db
 # ── Production builds ─────────────────────────────────────────────────────────
 dist/
 build/
+runs/
+reop/
 
 # ── Subagent runs & Auto-learned skills ───────────────────────────────────────
 subagent_runs/
