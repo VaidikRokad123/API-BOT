@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import { DATA_DIR, SUBAGENT_RUNS_DIR } from '../config.js';
+
 function generateId() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const rand = Math.random().toString(36).substring(2, 8);
@@ -11,7 +13,7 @@ export class ArtifactRun {
   constructor(runId, runDir) {
     this.runId = runId;
     this.runDir = runDir;
-    this.dataRunDir = path.join(process.cwd(), 'data', 'runs', runId);
+    this.dataRunDir = path.join(DATA_DIR, 'runs', runId);
     this.consoleLogPath = path.join(runDir, 'console.log');
     this.tracePath = path.join(runDir, 'trace.json');
     this.reportPath = path.join(runDir, 'report.md');
@@ -27,7 +29,7 @@ export class ArtifactRun {
 
   static create(task) {
     const runId = generateId();
-    const runDir = path.join(process.cwd(), 'subagent_runs', runId);
+    const runDir = path.join(SUBAGENT_RUNS_DIR, runId);
     const run = new ArtifactRun(runId, runDir);
     
     // Write initial task to report

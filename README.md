@@ -22,6 +22,7 @@ Everything runs from a single interactive console (`node agent.js`). The browser
 - [Quick Start](#quick-start)
 - [Requirements](#requirements)
 - [The Console](#the-console)
+- [Web Interface](#web-interface)
 - [Setup (Step by Step)](#setup-step-by-step)
 - [How `/chat` Works](#how-chat-works)
 - [How `/ask` Works](#how-ask-works)
@@ -105,6 +106,54 @@ Run `node agent.js` and you get an interactive prompt:
 | `/status` | Show the active provider and whether its session is valid |
 | `/help` | List all commands |
 | `/exit` | Quit |
+
+---
+
+## Web Interface
+
+The project includes a premium, glassmorphic dark-themed Web Interface (Dashboard) and an Express.js API backend with real-time Socket.IO logs.
+
+### Start the Web Server
+
+You can run the frontend and backend either in **unified mode** (on a single port) or in **independent mode** (on separate ports).
+
+#### 1. Unified Mode (Single Port: `3000`)
+The Express backend automatically serves the static frontend SPA assets:
+```powershell
+# Start the backend server (automatically hosts the frontend)
+npm run serve:backend
+```
+Open **[http://localhost:3000](http://localhost:3000)** in your browser.
+
+#### 2. Independent Mode (Separate Ports: `3000` & `5000`)
+You can run the frontend SPA on a separate web server (port `5000`) and the backend API on port `3000`. The frontend will automatically detect the port difference and route all API calls and Socket.IO connections to `http://localhost:3000`:
+```powershell
+# In terminal 1: Start the backend API server (runs on Port 3000)
+npm run serve:backend
+
+# In terminal 2: Start the frontend static web server (runs on Port 5000)
+npm run serve:frontend
+```
+Open **[http://localhost:5000](http://localhost:5000)** in your browser.
+
+### Features
+- **Dashboard**: Quick view of active provider status, connection status, overall stats (e.g. total applied, success rate), and recent application ledger logs.
+- **Chat**: Real-time message streaming with message history, provider selector dropdown, and a live "thinking" state.
+- **Job Apply**: Paste a job application URL, select a browser/AI engine, toggle company research, and view real-time log streaming and final outcome status.
+- **Browser Subagent**: Run natural-language tasks via the browser agent with a live status/screenshot console and completion reports.
+- **History**: Full database query view of all job applications from the SQLite ledger with filters and statistics cards.
+- **Settings**: Manage logins/sessions for all 5 providers, choose active browser engines, edit natural-language permission policies, and view your profile information.
+
+### Web Architecture
+
+The frontend is built as a single page application (SPA) with vanilla CSS (glassmorphism design) and modern JS page components, and uses Socket.IO for real-time progress streaming:
+
+- `/backend/server.js`: Express & Socket.IO server config.
+- `/backend/routes/`: Route modules mapping request parameters to core engine runs.
+- `/frontend/index.html`: SPA container shell.
+- `/frontend/css/style.css`: Design system and layout styling.
+- `/frontend/js/app.js`: Client-side SPA routing, API fetch client, and Socket.IO initialization.
+- `/frontend/js/pages/`: Modular page views loaded dynamically (dashboard, chat, apply, etc.).
 
 ---
 
@@ -625,52 +674,41 @@ Example domain skill:
 
 ```
 gpt_auth/
-├── agent.js                    # Entry point — interactive REPL with slash commands
 ├── package.json                # Dependencies and npm scripts
 │
-├── src/
-│   ├── ai.js                   # AI session management (openAiSession, sendMessage)
-│   ├── browser.js              # Browser engine management (Playwright, Real Chrome/Brave/Opera)
-│   ├── chat.js                 # Interactive chat mode (/chat)
-│   ├── config.js               # Paths: profile, session files, active provider
-│   ├── council.js              # Multi-provider council (/council)
-│   ├── login.js                # Provider login and model selection (/login, /model)
-│   ├── playwright-adapter.js   # Playwright-to-Puppeteer API adapter
+├── backend/                    # Express.js API Backend & CLI Core
+│   ├── agent.js                # CLI Entry point — interactive REPL with slash commands
+│   ├── server.js               # Web server configuration (Express + Socket.IO)
+│   ├── routes/                 # Express route handlers
+│   │   ├── apply.js            # /api/apply endpoint
+│   │   ├── ask.js              # /api/ask endpoint
+│   │   ├── browser.js          # /api/browser endpoint
+│   │   ├── chat.js             # /api/chat endpoint
+│   │   ├── council.js          # /api/council endpoint
+│   │   ├── history.js          # /api/history endpoint
+│   │   ├── providers.js        # /api/providers endpoint
+│   │   └── status.js           # /api/status endpoint
 │   │
-│   ├── providers/              # AI provider integrations
-│   │   ├── index.js            # Provider registry + shared utilities (insertPrompt, waitForStable)
-│   │   ├── chatgpt.js          # ChatGPT provider
-│   │   ├── grok.js             # Grok provider
-│   │   ├── gemini.js           # Gemini provider
-│   │   ├── perplexity.js       # Perplexity provider
-│   │   └── deepseek.js         # DeepSeek provider
-│   │
-│   ├── apply/                  # Job application engine
-│   │   ├── index.js            # Apply entry point — orchestration, retry logic, ledger
-│   │   ├── prompt.js           # AI prompt construction + JSON sanitization
-│   │   ├── scraper.js          # Page scraping — fields, buttons, aria snapshots, iframes
-│   │   ├── executor.js         # Action execution — fill, click, select, upload, signature
-│   │   ├── browser-subagent.js # Perceive/act/verify cycle + action permission enforcement
-│   │   ├── research.js         # Company/role research via AI
-│   │   ├── captcha.js          # CAPTCHA/Cloudflare detection and user pause
-│   │   ├── completion.js       # Submission confirmation detection
-│   │   ├── dropdown.js         # Dropdown/combobox handling utilities
-│   │   ├── selector.js         # CSS selector utilities
-│   │   ├── popup-handler.js    # OAuth popup/new window handling
-│   │   ├── ledger.js           # SQLite application history (record/query)
-│   │   └── failure-taxonomy.js # Failure classification and retry policy
-│   │
-│   └── subagent/               # Browser subagent engine
-│       ├── index.js            # Subagent entry point — the main perceive-act loop
-│       ├── tools.js            # Tool registry (navigate, click, fill, scroll, etc.)
-│       ├── prompt.js           # Subagent prompt builder (with profile + research context)
-│       ├── verify.js           # Goal verification via AI
-│       ├── fsm.js              # Finite state machine (XState + lightweight fallback)
-│       ├── artifacts.js        # Run artifact management (screenshots, traces, reports)
-│       ├── perception.js       # Page observation builder
-│       ├── console.js          # Browser console capture
-│       ├── logger.js           # Pino-based structured logging
-│       └── domain-skills.js    # Auto-learning domain strategies
+│   └── src/                    # Shared automation core engine
+│       ├── ai.js               # AI session management
+│       ├── browser.js          # Browser engine management
+│       ├── chat.js             # Interactive chat mode
+│       ├── config.js           # Configuration paths and helpers
+│       ├── council.js          # Multi-provider council
+│       ├── login.js            # Provider login and model selection
+│       ├── playwright-adapter.js # Playwright-to-Puppeteer API adapter
+│       │
+│       ├── providers/          # AI provider integrations (chatgpt, grok, etc.)
+│       ├── apply/              # Job application auto-filler engine
+│       └── subagent/           # Browser subagent percept-act loop
+│
+├── frontend/                   # Premium Dark Theme SPA Frontend
+│   ├── index.html              # Main frontend HTML container
+│   ├── css/
+│   │   └── style.css           # Glassmorphic custom CSS styling
+│   └── js/
+│       ├── app.js              # SPA router, API client & Socket.IO setup
+│       └── pages/              # SPA modular pages (dashboard, chat, apply, etc.)
 │
 ├── data/
 │   ├── profile.example.json    # Example profile template

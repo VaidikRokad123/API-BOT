@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_PATH = path.join(DATA_DIR, 'applications.sqlite');
+import { DATA_DIR, LEDGER_DB_FILE as DB_PATH } from '../config.js';
 
 let sqliteModPromise = null;
 

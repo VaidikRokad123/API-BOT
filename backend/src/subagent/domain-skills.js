@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const SKILL_DIR = path.join(process.cwd(), 'domain-skills');
+import { DOMAIN_SKILLS_DIR as SKILL_DIR } from '../config.js';
 
 function safeHost(hostname) {
   return String(hostname || 'unknown').toLowerCase().replace(/[^a-z0-9.-]/g, '_');

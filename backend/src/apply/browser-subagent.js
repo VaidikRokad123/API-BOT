@@ -3,7 +3,7 @@ import path from 'path';
 import readline from 'readline';
 import { z } from 'zod';
 
-const PERMISSIONS_FILE = path.join(process.cwd(), 'data', 'permissions.json');
+import { PERMISSIONS_FILE } from '../config.js';
 const DEFAULT_PERMISSIONS = {
   fill_text_field: 'allow',
   select_dropdown: 'allow',
