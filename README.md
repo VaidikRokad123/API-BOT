@@ -380,7 +380,7 @@ When you run `/apply`, you're prompted to configure:
 ```
 /apply <url>
   │
-  ├── 1. Duplicate check (SQLite ledger — skip if already applied successfully)
+  ├── 1. Duplicate check (MongoDB ledger — skip if already applied successfully)
   ├── 2. Resume version validation (warn if PDF ≠ plain text dates)
   ├── 3. Navigate to job URL
   ├── 4. Detect if page is the form or a landing page → navigate to form
@@ -397,7 +397,7 @@ When you run `/apply`, you're prompted to configure:
   │
   ├── 7. Verify goal completion (AI checks the final page state)
   ├── 8. Classify verdict (success / failure with reason)
-  ├── 9. Record to application ledger (SQLite)
+  ├── 9. Record to application ledger (MongoDB)
   ├── 10. Save domain skill (if successful — auto-learns site quirks)
   └── 11. Auto-retry on retryable failures (up to 3 attempts with backoff)
 ```
@@ -645,9 +645,9 @@ The file `data/permissions.json` controls which actions the agent can perform au
 
 ## Application Ledger
 
-The agent maintains a **SQLite database** at `data/applications.sqlite` to track every job application:
+The agent maintains a **MongoDB database collection** (via Mongoose) to track every job application:
 
-| Column | Description |
+| Column / Field | Description |
 |---|---|
 | `url` | The job application URL |
 | `company` | Company name (from research) |
@@ -661,8 +661,6 @@ The agent maintains a **SQLite database** at `data/applications.sqlite` to track
 - **Duplicate detection:** Before applying, checks if you've already successfully applied to the same URL (or same company+role). Skips if found.
 - **Auto-retry:** Retryable failures (`element_not_found`, `timeout`) trigger up to 3 automatic retries with exponential backoff.
 - **Permanent failures:** Non-retryable reasons (`captcha`, `session_expired`, `already_applied`, `sso_required`, `form_incompatible`, `cloudflare_block`) are recorded without retry.
-
-> **Note:** The SQLite ledger requires Node.js v22.5+ or v24+ (uses the built-in `node:sqlite` module). On older Node versions, the ledger is silently skipped.
 
 ---
 
@@ -723,21 +721,22 @@ gpt_auth/
 │       ├── apply/              # Job application auto-filler engine
 │       └── subagent/           # Browser subagent percept-act loop
 │
-├── frontend/                   # Premium Dark Theme SPA Frontend
+├── frontend/                   # Premium Dark Theme React SPA Frontend
 │   ├── index.html              # Main frontend HTML container
-│   ├── css/
-│   │   └── style.css           # Glassmorphic custom CSS styling
-│   └── js/
-│       ├── app.js              # SPA router, API client & Socket.IO setup
-│       └── pages/              # SPA modular pages (dashboard, chat, apply, etc.)
+│   ├── vite.config.js          # Vite configuration
+│   ├── package.json            # React & Vite build configurations
+│   └── src/                    # React codebase
+│       ├── main.jsx            # React mount entrypoint
+│       ├── App.jsx             # React main layout shell, navigation, and state
+│       ├── index.css           # Glassmorphic custom CSS styling
+│       └── components/         # Reusable React components (Dashboard, Chat, Apply, Browser, History, Settings)
 │
 ├── data/
 │   ├── profile.example.json    # Example profile template
 │   ├── profile.json            # Your personal profile (gitignored)
 │   ├── permissions.json        # Action permission policy
 │   ├── resume.pdf              # Your resume PDF (gitignored)
-│   ├── applications.sqlite     # Application history ledger (auto-created)
-│   └── runs/                   # Structured step data per run
+│   └── runs/                   # Structured step data per run (MongoDB records history)
 │
 ├── session/                    # Provider session files (gitignored)
 │   ├── active.json             # Currently active provider
@@ -796,8 +795,8 @@ Check your terminal! The agent will detect CAPTCHAs and ask you to press `ENTER`
 **Resume PDF not uploading**
 Check `resumePdfPath` in `data/profile.json` is a real path with double backslashes on Windows: `"D:\\Docs\\resume.pdf"`.
 
-**"node:sqlite is not available"**
-The application ledger requires Node.js v22.5+ or v24+. On older versions, the ledger features (duplicate detection, history) are silently skipped.
+**MongoDB connection issues / status disconnected**
+Make sure your MongoDB server is running (if local) or your connection string in `backend/.env` is correct. If you are using MongoDB Atlas, make sure your current IP address is whitelisted in the Atlas console.
 
 **Real browser won't connect**
 If Chrome/Brave/Opera is already running, close **all** windows/processes first, then restart with the `--remote-debugging-port` flag. Existing browser processes ignore new debugging flags.
