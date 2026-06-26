@@ -9,19 +9,17 @@ export default function Chat({ ctx }) {
   const [inputDisabled, setInputDisabled] = useState(false);
 
   const messagesEndRef = useRef(null);
-  const sessionIdRef = useRef(null);
-
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
 
   useEffect(() => {
     return () => {
-      if (sessionIdRef.current) {
-        ctx.API.post('/chat/close', { sessionId: sessionIdRef.current }).catch(() => {});
+      if (sessionId) {
+        console.log('[Chat Teardown] Closing session:', sessionId);
+        ctx.API.post('/chat/close', { sessionId }).catch((e) => {
+          console.error('[Chat Teardown] Close request failed:', e);
+        });
       }
     };
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -98,9 +96,8 @@ export default function Chat({ ctx }) {
     }
   };
 
-  const handleCloseSession = async () => {
+  const handleCloseSession = () => {
     if (sessionId) {
-      await ctx.API.post('/chat/close', { sessionId });
       setSessionId(null);
       setMessages([]);
       ctx.showToast('Chat session closed', 'info');

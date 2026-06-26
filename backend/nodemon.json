@@ -1,0 +1,15 @@
+{
+  "watch": [
+    "server.js",
+    "agent.js",
+    "routes/",
+    "src/"
+  ],
+  "ext": "js,mjs",
+  "ignore": [
+    "session/**",
+    "data/**",
+    "subagent_runs/**",
+    "domain-skills/**"
+  ]
+}

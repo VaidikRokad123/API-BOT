@@ -51,6 +51,7 @@ router.post('/browser', (req, res) => {
     const engines = getEngineList();
     const match = engines.find(e => e.key === engine);
     if (!match) return res.status(400).json({ error: `Invalid engine: ${engine}` });
+    if (match.blocked) return res.status(400).json({ error: `${match.name} is currently blocked.` });
 
     saveBrowserPref(engine);
     res.json({ success: true, engine: match.key, name: match.name });
@@ -66,6 +67,7 @@ router.post('/browser/ai', (req, res) => {
     const engines = getEngineList();
     const match = engines.find(e => e.key === engine);
     if (!match) return res.status(400).json({ error: `Invalid engine: ${engine}` });
+    if (match.aiBlocked) return res.status(400).json({ error: `${match.name} is currently blocked for AI automated sessions.` });
 
     saveAiBrowserPref(engine);
     res.json({ success: true, engine: match.key, name: match.name });

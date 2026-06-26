@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
-    "dev": "concurrently \"npm run serve --prefix backend\" \"npm run dev --prefix frontend\"",
+    "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
     "build:frontend": "npm run build --prefix frontend",
     "start": "npm run serve --prefix backend",
     "agent": "node backend/agent.js",

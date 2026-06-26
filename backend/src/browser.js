@@ -17,9 +17,9 @@ const BROWSER_PREF_FILE = path.join(__dirname, '..', 'session', 'browser.json');
 
 const ENGINES = {
   playwright:    { name: 'Playwright (ariaSnapshot scraping)' },
-  'real-chrome': { name: 'Real Chrome (connect over CDP)' },
-  'real-brave':  { name: 'Real Brave (connect over CDP)' },
-  'real-opera':  { name: 'Real Opera (connect over CDP)' },
+  'real-chrome': { name: 'Real Chrome (connect over CDP)', aiBlocked: true },
+  'real-brave':  { name: 'Real Brave (connect over CDP)', aiBlocked: true },
+  'real-opera':  { name: 'Real Opera (connect over CDP)', aiBlocked: true },
 };
 
 const REAL_BROWSER_CONFIG = {
@@ -50,7 +50,7 @@ const realBrowserConnections = new WeakSet();
 export function readBrowserPref() {
   try {
     const data = JSON.parse(fs.readFileSync(BROWSER_PREF_FILE, 'utf8'));
-    if (data.browser === 'real') return 'real-chrome';
+    if (data.browser === 'real' && ENGINES['real-chrome']) return 'real-chrome';
     if (ENGINES[data.browser]) return data.browser;
   } catch { /* ignore */ }
   return 'playwright'; // default
@@ -138,7 +138,12 @@ export function saveAiBrowserPref(key) {
 }
 
 export function getEngineList() {
-  return Object.entries(ENGINES).map(([key, { name }]) => ({ key, name }));
+  return Object.entries(ENGINES).map(([key, info]) => ({
+    key,
+    name: info.name,
+    blocked: !!info.blocked,
+    aiBlocked: !!info.aiBlocked
+  }));
 }
 
 const USER_AGENTS = {
@@ -150,7 +155,12 @@ const USER_AGENTS = {
 export async function launchBrowser(visible = false, profileSuffix = '', options = {}) {
   let pref = options.engine || (options.forceAutomated ? readAiBrowserPref() : readBrowserPref());
 
-  if (REAL_BROWSER_CONFIG[pref]) {
+  if (options.forceAutomated && ENGINES[pref]?.aiBlocked) {
+    console.log(`  ⚠ Selected AI engine '${pref}' is blocked. Falling back to playwright for automated run.`);
+    pref = 'playwright';
+  }
+
+  if (ENGINES[pref] && REAL_BROWSER_CONFIG[pref]) {
     const realConfig = REAL_BROWSER_CONFIG[pref];
     try {
       return await connectRealBrowser(realConfig);

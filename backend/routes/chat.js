@@ -9,8 +9,10 @@ router.post('/chat/start', async (req, res) => {
     const { browser, page, providerName } = await openAiSession(false);
     const sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     chatSessions.set(sessionId, { browser, page, providerName });
+    console.log(`  ✓ Chat session started: ${sessionId} (${providerName})`);
     res.json({ success: true, sessionId, provider: providerName });
   } catch (err) {
+    console.error(`  ✗ Chat session start failed:`, err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -39,13 +41,18 @@ router.post('/chat/send', async (req, res) => {
 router.post('/chat/close', async (req, res) => {
   try {
     const { sessionId } = req.body;
+    console.log(`  ✗ Closing chat session: ${sessionId}`);
     const session = chatSessions.get(sessionId);
     if (session) {
-      await session.browser.close().catch(() => {});
+      await session.browser.close().catch((e) => console.error(`  ✗ Failed to close browser:`, e.message));
       chatSessions.delete(sessionId);
+      console.log(`  ✓ Browser closed for session: ${sessionId}`);
+    } else {
+      console.log(`  ⚠ Session not found or already closed: ${sessionId}`);
     }
     res.json({ success: true });
   } catch (err) {
+    console.error(`  ✗ Chat session close failed:`, err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -195,15 +195,16 @@ export default function Settings({ ctx }) {
             engines.map((e) => (
               <div
                 key={e.key}
-                className={`provider-card ${e.key === activeEngine ? 'active' : ''}`}
-                onClick={() => handleSwitchEngine(e.key)}
-                style={{ cursor: 'pointer' }}
+                className={`provider-card ${e.key === activeEngine ? 'active' : ''} ${e.blocked ? 'blocked' : ''}`}
+                onClick={() => !e.blocked && handleSwitchEngine(e.key)}
+                style={e.blocked ? { cursor: 'not-allowed', opacity: 0.6 } : { cursor: 'pointer' }}
               >
                 <div className="provider-info">
                   <h4>{e.name}</h4>
-                  <span>{e.key}</span>
+                  <span>{e.key} {e.blocked && <strong style={{ color: '#f87171', marginLeft: '8px' }}>(Blocked)</strong>}</span>
                 </div>
                 {e.key === activeEngine && <span className="badge badge-purple">Active</span>}
+                {e.blocked && <span className="badge badge-danger">Blocked</span>}
               </div>
             ))
           )}
@@ -227,15 +228,16 @@ export default function Settings({ ctx }) {
             engines.map((e) => (
               <div
                 key={e.key}
-                className={`provider-card ${e.key === activeAiEngine ? 'active' : ''}`}
-                onClick={() => handleSwitchAiEngine(e.key)}
-                style={{ cursor: 'pointer' }}
+                className={`provider-card ${e.key === activeAiEngine ? 'active' : ''} ${e.aiBlocked ? 'blocked' : ''}`}
+                onClick={() => !e.aiBlocked && handleSwitchAiEngine(e.key)}
+                style={e.aiBlocked ? { cursor: 'not-allowed', opacity: 0.6 } : { cursor: 'pointer' }}
               >
                 <div className="provider-info">
                   <h4>{e.name}</h4>
-                  <span>{e.key}</span>
+                  <span>{e.key} {e.aiBlocked && <strong style={{ color: '#f87171', marginLeft: '8px' }}>(Blocked)</strong>}</span>
                 </div>
                 {e.key === activeAiEngine && <span className="badge badge-purple">Active</span>}
+                {e.aiBlocked && <span className="badge badge-danger">Blocked</span>}
               </div>
             ))
           )}
