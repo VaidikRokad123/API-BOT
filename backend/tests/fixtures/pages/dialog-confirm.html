@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Dialog trigger</title></head>
+<body>
+  <button id="confirm-btn" type="button">Delete item</button>
+  <p id="status">pending</p>
+  <script>
+    document.getElementById('confirm-btn').addEventListener('click', () => {
+      if (window.confirm('Are you sure you want to delete?')) {
+        document.getElementById('status').textContent = 'confirmed';
+      } else {
+        document.getElementById('status').textContent = 'cancelled';
+      }
+    });
+  </script>
+</body>
+</html>
