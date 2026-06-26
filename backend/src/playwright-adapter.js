@@ -220,6 +220,29 @@ export class PlaywrightPage {
   async close() { return this.page.close(); }
 }
 
+export class PlaywrightPersistentBrowser {
+  constructor(context) {
+    this.context = context;
+    this.browser = null;
+  }
+
+  async initContext() { return this.context; }
+
+  async newPage() {
+    const pages = this.context.pages();
+    const page = pages.length ? pages[0] : await this.context.newPage();
+    return new PlaywrightPage(page, this.context);
+  }
+
+  async pages() {
+    return this.context.pages().map(p => new PlaywrightPage(p, this.context));
+  }
+
+  defaultBrowserContext() { return this; }
+
+  async close() { await this.context.close().catch(() => {}); }
+}
+
 export class PlaywrightBrowser {
   constructor(browser, { userAgent } = {}) {
     this.browser = browser;

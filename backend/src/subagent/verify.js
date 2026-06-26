@@ -1,9 +1,18 @@
 import { buildObservation } from './perception.js';
 import { sendMessage } from '../ai.js';
-import { sanitizeGptJson } from '../apply/prompt.js';
+import { isSubmissionConfirmed } from '../apply/completion.js';
+import { sanitizeGptJson } from './ai-json.js';
 
-export async function verifyGoal(page, task, aiPage, consoleBuffer = null, agentReport = '') {
+export async function verifyGoal(page, task, aiPage, consoleBuffer = null, agentReport = '', options = {}) {
   const obs = await buildObservation(page, consoleBuffer);
+
+  if (options.isApply && isSubmissionConfirmed(obs)) {
+    return {
+      passed: true,
+      reason: 'Structural submission confirmation (page text or confirmation URL)',
+      evidence: `${obs.url} | ${obs.pageText?.slice(0, 200)}`
+    };
+  }
 
   const reportBlock = agentReport
     ? `\nSUBAGENT'S PRODUCED ANSWER / REPORT:\n${String(agentReport).slice(0, 4000)}\n`
@@ -19,14 +28,23 @@ Text Snippet: ${obs.pageText?.slice(0, 3000)}
 ${reportBlock}
 Verify if the task has been achieved.
 - For ACTION tasks (submit/login/navigate): judge by the page state (url, title, success text).
-- For EXTRACTION / LIST / SUMMARY / REPORT tasks: the deliverable is the SUBAGENT'S PRODUCED ANSWER above. If it contains the requested information and is consistent with the page Text, mark passed=true.
+- For EXTRACTION / LIST / SUMMARY / REPORT tasks: the deliverable is the SUBAGENT'S PRODUCED ANSWER above.
 
 Return ONLY this JSON:
 {"passed":true,"reason":"Clear explanation","evidence":"Concrete evidence"}`;
 
   try {
-    const raw = await sendMessage(aiPage, verifyPrompt);
-    const result = sanitizeGptJson(raw);
+    let raw = await sendMessage(aiPage, verifyPrompt);
+    let result;
+    try {
+      result = sanitizeGptJson(raw);
+    } catch (parseErr) {
+      raw = await sendMessage(
+        aiPage,
+        `Invalid JSON: ${parseErr.message}. Return ONLY {"passed":boolean,"reason":"...","evidence":"..."}`
+      );
+      result = sanitizeGptJson(raw);
+    }
     return {
       passed: !!result.passed,
       reason: result.reason || 'No explanation provided.',

@@ -1,31 +1,31 @@
 import { TOOL_REGISTRY } from './tools.js';
 import { parsePhoneNumber } from '../apply/prompt.js';
 
+function formatActionableFields(fields = []) {
+  return fields.slice(0, 60).map(f => {
+    const parts = [`ref=${f.ref}`, `role=${f.type === 'select' ? 'combobox' : f.type}`, `name="${f.label}"`];
+    if (f.required) parts.push('required');
+    if (f.placeholder) parts.push(`ph="${f.placeholder}"`);
+    if (f.currentValue) parts.push(`value="${f.currentValue}"`);
+    if (f.type === 'select' && f.options?.length) {
+      parts.push(`dropdown=native_select options=[${f.options.filter(o => !o.isPlaceholder).map(o => o.text).join(' | ')}]`);
+    } else if (f.dropdownKind === 'custom_combobox') {
+      parts.push('dropdown=custom_combobox');
+    }
+    return `- ${parts.join(' | ')}`;
+  }).join('\n');
+}
+
+function formatButtons(buttons = []) {
+  return buttons.slice(0, 40).map(b =>
+    `- ref=${b.ref} role=button name="${b.text}"${b.disabled ? ' disabled' : ''}`
+  ).join('\n');
+}
+
 export function buildSubagentPrompt(task, obs, history = [], profile = null, research = null, domainSkill = null) {
   const toolsInfo = Object.entries(TOOL_REGISTRY).map(([name, def]) => {
     return `- ${name}: ${def.description} | Params: ${JSON.stringify(def.params)}`;
   }).join('\n');
-
-  const compactFields = (obs.fields || []).map(f => {
-    const compact = { label: f.label, type: f.type, selector: f.selector, ref: f.ref };
-    if (f.required) compact.required = true;
-    if (f.placeholder) compact.ph = f.placeholder;
-    if (f.currentValue) compact.value = f.currentValue;
-    if (f.type === 'select' && f.options?.length) {
-      compact.options = f.options.filter(o => !o.isPlaceholder).map(o => o.text);
-      compact.optionKind = 'native_select';
-    }
-    return compact;
-  });
-
-  const compactFieldsCapped = compactFields.slice(0, 60);
-
-  const compactButtons = (obs.buttons || []).slice(0, 60).map(b => ({
-    text: b.text,
-    selector: b.selector,
-    ref: b.ref,
-    disabled: b.disabled || false
-  }));
 
   const historyBlock = history.length ? history.slice(-6).map(h => {
     return `Step ${h.step}:
@@ -35,13 +35,16 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
 - Result: ${h.result}`;
   }).join('\n\n') : 'No history yet.';
 
-  const ariaBlock = obs.ariaSnapshot
-    ? `\nACCESSIBILITY SNAPSHOT:\n${obs.ariaSnapshot}\n`
+  const elementListBlock = obs.elementList
+    ? `\nINTERACTIVE ELEMENTS (authoritative — use ONLY these ref values; never invent a ref or CSS selector):\n${obs.elementList}\n`
     : '';
 
-  const elementListBlock = obs.elementList
-    ? `\nINTERACTIVE ELEMENT LIST (role, accessible name/placeholder fallback, ref, selector, current value/checked/selected/options):\n${obs.elementList}\n`
+  const ariaBlock = obs.ariaSnapshot
+    ? `\nACCESSIBILITY TREE (reference — act using ref from INTERACTIVE ELEMENTS above):\n${obs.ariaSnapshot.slice(0, 6000)}\n`
     : '';
+
+  const fieldsBlock = formatActionableFields(obs.fields || []);
+  const buttonsBlock = formatButtons(obs.buttons || []);
 
   const consoleBlock = obs.consoleTail?.length
     ? `\nCONSOLE LOGS / ERRORS:\n${obs.consoleTail.join('\n')}\n`
@@ -50,7 +53,7 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
   let candidateBlock = '';
   let guidelinesBlock = '';
   const domainSkillBlock = domainSkill
-    ? `\nKNOWN DOMAIN SKILL FOR THIS HOST (hash-validated — elementHash targets only; 0 or 2+ matches fall back to fresh reasoning):\n${JSON.stringify(domainSkill).slice(0, 4000)}\nPrefer elementHash + ref from ELEMENT LIST when replaying cached actions.\n`
+    ? `\nKNOWN DOMAIN SKILL (hash-validated — elementHash targets; 0 or 2+ matches → ignore cache):\n${JSON.stringify(domainSkill).slice(0, 4000)}\n`
     : '';
 
   if (profile) {
@@ -59,124 +62,72 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
     const parsedPhone = parsePhoneNumber(profile);
 
     const compactProfile = {
-      name: profile.name,
-      firstName,
-      lastName,
-      email: profile.email,
-      phone: parsedPhone.phone,
-      phoneCountryCode: parsedPhone.phoneCountryCode,
+      name: profile.name, firstName, lastName, email: profile.email,
+      phone: parsedPhone.phone, phoneCountryCode: parsedPhone.phoneCountryCode,
       phoneNumberDigits: parsedPhone.phoneNumberDigits,
-      legalNameSameAsPreferred: profile.legalNameSameAsPreferred || 'Yes',
-      address: profile.address,
-      city: profile.city,
-      state: profile.state,
-      country: profile.country || 'United States',
-      postalCode: profile.postalCode,
-      linkedin: profile.linkedin,
-      github: profile.github,
-      portfolio: profile.portfolio,
-      yearsOfExperience: profile.yearsOfExperience,
-      currentRole: profile.currentRole,
-      desiredRole: profile.desiredRole,
-      currentCTC: profile.currentCTC,
-      expectedCTC: profile.expectedCTC,
-      noticePeriod: profile.noticePeriod,
-      reasonForLeaving: profile.reasonForLeaving,
-      skills: profile.skills,
-      education: profile.education,
-      resumeSummary: (profile.resume || '').slice(0, 800),
-      workAuthorization: profile.workAuthorization || 'Yes',
+      city: profile.city, state: profile.state, country: profile.country || 'United States',
+      linkedin: profile.linkedin, skills: profile.skills,
+      yearsOfExperience: profile.yearsOfExperience, expectedCTC: profile.expectedCTC,
+      noticePeriod: profile.noticePeriod, workAuthorization: profile.workAuthorization || 'Yes',
       requiresSponsorship: profile.requiresSponsorship || 'No',
-      gender: profile.gender || 'Prefer not to say',
-      ethnicity: profile.ethnicity || 'Prefer not to say',
-      veteranStatus: profile.veteranStatus || 'No',
-      disabilityStatus: profile.disabilityStatus || 'No',
-      armedForcesStatus: profile.armedForcesStatus || profile.militaryOrGovernmentEmployee || 'No',
-      militaryOrGovernmentEmployee: profile.militaryOrGovernmentEmployee || 'No',
-      hasNonCompete: profile.hasNonCompete || 'No',
-      previouslyEmployedHere: profile.previouslyEmployedHere || 'No',
-      currentlyAtSubsidiary: profile.currentlyAtSubsidiary || 'No',
-      willingToRelocate: profile.willingToRelocate || 'No',
+      resumeSummary: (profile.resume || '').slice(0, 800)
     };
 
     let researchText = '';
     if (research) {
-      researchText = `
-JOB RESEARCH:
-Company: ${research.companyName} | Role: ${research.jobTitle}
-Context: ${research.companyContext?.slice(0, 200)}
-Key Reqs: ${research.keyRequirements?.join(', ')}
-Matched Skills: ${research.matchingSkills?.join(', ')}
-Salary: ${research.salaryToQuote ?? research.salaryFallback}
-Positioning: ${research.positioningStatement?.slice(0, 200)}
-`;
+      researchText = `\nJOB RESEARCH: ${research.companyName} | ${research.jobTitle}\nMatched: ${research.matchingSkills?.join(', ')}\nSalary: ${research.salaryToQuote ?? research.salaryFallback}\n`;
     }
 
-    candidateBlock = `
-CANDIDATE PROFILE:
-${JSON.stringify(compactProfile)}
-${researchText}
-`;
+    candidateBlock = `\nCANDIDATE PROFILE:\n${JSON.stringify(compactProfile)}${researchText}\n`;
 
     guidelinesBlock = `
 GUIDELINES FOR FORM FILLING:
-1. Use the CANDIDATE PROFILE and JOB RESEARCH above to answer form questions.
-2. Use selector or ref values exactly from the FIELDS/BUTTONS/ELEMENT LIST below. Do not invent selectors or refs.
-3. If there are multiple form fields visible (inputs, dropdowns, checkboxes, radios, signature pads, uploads), use the "fill_form" tool to fill them all at once in a single step.
-4. For "fill_form", actions must be objects like {"type":"fill|select|check|upload|signature","selector":"...","ref":"...","value":"..."}.
-5. Fill ALL fields on the current page section using "fill_form" BEFORE clicking Next/Submit/Continue.
-6. Once a page section is fully filled, use the "click" tool to click the Next/Submit/Continue button.
-7. If faced with multiple login options (Google, Microsoft, LinkedIn, Email), click "Continue with Google" / "Sign in with Google".
-8. Do not mark the task "done" / "finish" until the page explicitly confirms the application has been submitted/received. Seeing a Submit button means it is NOT done.
-9. If a Google OAuth or login window pops up, use the "handle_login" tool immediately.
-10. If a CAPTCHA or verification challenge appears, use the "wait" tool to pause so the user can solve it.
-11. Native <select> controls have optionKind "native_select" and visible options; ARIA custom dropdowns/comboboxes/listboxes are "custom_combobox". Keep them distinct in select actions.
-12. For final submit/apply clicks, include args.category="submit_application" so the permission policy can pause before submitting.
+1. INTERACTIVE ELEMENTS list is authoritative. Every fill/click/select MUST use a ref copied exactly from that list. NEVER invent refs, CSS selectors, or element names not shown.
+2. Native HTML <select> → use select tool with optionKind "native_select" and value = exact option text from the list.
+3. ARIA combobox/listbox/custom dropdown (dropdown=custom_combobox) → use select tool with optionKind "custom_combobox". Do NOT use native_select for these.
+4. Use fill_form to batch all visible empty fields before clicking Next/Submit.
+5. Google OAuth → handle_login tool. Never type passwords — system fills credentials locally.
+6. Submit clicks → args.category="submit_application" (permission gate).
+7. status "done"/finish only after explicit submission confirmation text on page.
 `;
   } else {
     guidelinesBlock = `
 GUIDELINES:
-1. Return exactly ONE tool call in the JSON format specified below.
-2. Selectors or refs MUST be chosen exactly from the FIELDS/BUTTONS/ELEMENT LIST. Do not invent selectors.
-3. For elements inside iframes, use selectors containing " >>> " (frame-piercing) exactly as scraped.
-4. If an OAuth/Google login window pops up, use the "handle_login" tool immediately.
-5. The page's currently visible text is in CURRENT OBSERVATION → Text. READ IT — most "find / list / extract / summarize" tasks are answered directly from that text, no clicking needed.
-6. For long pages (feeds, search results, lists, articles): the Text shows only what is currently loaded. Use "scroll" (direction "down") then re-read on the next step to load MORE items. Repeat until you have collected enough, then finish.
-7. Collect findings as you go and keep them in your "reasoning". Do NOT give up just because the first screen shows only one item — scroll and keep reading.
-8. Only use "screenshot" when the task truly needs visual inspection; you cannot read pixels from a screenshot, so prefer the Text.
-9. When the task is complete, call the "finish" tool with status "done" and put your FULL compiled answer/report (the actual deliverable: items, roles, links, summary) in args.report as a string. This text becomes the run's report — make it complete and self-contained.
-10. Use status "blocked" ONLY if genuinely unable to proceed after scrolling/reading (e.g. login wall). Explain what blocked you in args.report.
-11. CRITICAL MULTI-SITE INSTRUCTION: If the TASK requests performing actions across multiple websites or platforms (e.g., "do this in Perplexity then open ChatGPT... and make report in Grok"), you MUST physically navigate the browser to each site, enter the corresponding input/prompt, extract the response, and carry that context to the next site in the exact order requested. Do NOT skip any site or try to generate the final output early on a previous site.
+1. Return exactly ONE tool call as raw JSON.
+2. Use ONLY ref values from INTERACTIVE ELEMENTS — never invent refs or selectors.
+3. Native <select> (dropdown=native_select) vs ARIA custom combobox (dropdown=custom_combobox) require different select optionKind.
+4. OAuth/login → handle_login immediately.
+5. Read page Text before clicking when task is extract/list/summarize.
+6. finish tool puts full deliverable in args.report.
 `;
   }
 
-  return `You are a browser subagent executing a task in the browser.
-Your goal is to achieve this TASK: "${task}"
+  return `You are a browser subagent executing: "${task}"
 
-AVAILABLE TOOLS:
+TOOLS:
 ${toolsInfo}
 ${candidateBlock}
 ${domainSkillBlock}
 ${guidelinesBlock}
 
-ROLLING HISTORY:
+HISTORY:
 ${historyBlock}
 
-CURRENT OBSERVATION:
+OBSERVATION:
 URL: ${obs.url}
 Title: ${obs.title}
 Text: ${obs.pageText?.slice(0, 8000)}
 
-FIELDS:
-${JSON.stringify(compactFieldsCapped)}
+ACTIONABLE FIELDS (ref-first):
+${fieldsBlock || '(none)'}
 
 BUTTONS:
-${JSON.stringify(compactButtons)}
+${buttonsBlock || '(none)'}
 ${elementListBlock}
 ${ariaBlock}
 ${consoleBlock}
-FORMAT (Return ONLY raw JSON - no markdown wrapper, no explanation):
-{"reasoning":"...","tool":"navigate|click|click_blank|fill|select|check|upload|scroll|hover|press|wait|read|screenshot|extract|handle_login|signature|fill_form|finish","args":{...},"status":"continue|done|blocked"}
-When finishing an extraction/report task, put the full deliverable in args.report, e.g. {"reasoning":"...","tool":"finish","args":{"report":"1. Role — Company — link ..."},"status":"done"}
+FORMAT (raw JSON only):
+{"reasoning":"...","tool":"...","args":{...},"status":"continue|done|blocked"}
+Use args.ref (preferred) or args.selector ONLY when copied from INTERACTIVE ELEMENTS above.
 `;
 }

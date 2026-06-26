@@ -9,6 +9,7 @@ export const SESSION_DIR       = path.join(__dirname, '..', 'session');
 export const DOMAIN_SKILLS_DIR = path.join(__dirname, '..', 'domain-skills');
 export const SUBAGENT_RUNS_DIR = path.join(__dirname, '..', 'subagent_runs');
 
+export const BROWSER_PROFILES_DIR = path.join(DATA_DIR, 'browser-profiles');
 export const PROFILE_FILE      = path.join(DATA_DIR, 'profile.json');
 export const PERMISSIONS_FILE  = path.join(DATA_DIR, 'permissions.json');
 export const ACTIVE_FILE       = path.join(SESSION_DIR, 'active.json');

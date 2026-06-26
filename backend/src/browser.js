@@ -4,7 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
-import { PlaywrightBrowser } from './playwright-adapter.js';
+import { PlaywrightBrowser, PlaywrightPersistentBrowser } from './playwright-adapter.js';
+import { BROWSER_PROFILES_DIR } from './config.js';
 
 // Initialize stealth plugin
 puppeteer.use(StealthPlugin());
@@ -187,6 +188,32 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
     }
   }
 
+  // Playwright with persistent profile — keeps Google OAuth cookies between apply runs.
+  if (options.persistentProfile && pref === 'playwright') {
+    let chromium;
+    try {
+      ({ chromium } = await import('playwright'));
+    } catch {
+      throw new Error('Playwright not installed.');
+    }
+    const profileDir = path.join(BROWSER_PROFILES_DIR, profileSuffix || 'default');
+    if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true });
+    const context = await chromium.launchPersistentContext(profileDir, {
+      headless: false,
+      channel: 'chrome',
+      ignoreDefaultArgs: ['--enable-automation'],
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-infobars',
+        '--no-sandbox',
+        '--window-size=1280,900',
+      ],
+      viewport: { width: 1280, height: 900 },
+      userAgent: USER_AGENTS.chrome,
+    });
+    return new PlaywrightPersistentBrowser(context);
+  }
+
   // Everything that isn't a real-browser connection runs on Playwright — the only
   // bundled engine. MUST be headful with the real Chrome channel: headless bundled
   // Chromium trips Cloudflare on ChatGPT/providers (challenge page → readySelector
@@ -213,6 +240,10 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
 }
 
 export async function newStealthContext(browser, storageStatePath = null) {
+  // Persistent context already carries cookies/localStorage — skip re-init.
+  if (browser instanceof PlaywrightPersistentBrowser) {
+    return browser;
+  }
   // Playwright: create one context, seeding storageState directly (session files
   // already use Playwright's {cookies, origins} shape). The browser object itself
   // is the context wrapper — newPage/pages/close all live on it.
