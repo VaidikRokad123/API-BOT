@@ -8,37 +8,25 @@ export default function Browser({ ctx }) {
   const [status, setStatus] = useState('Running');
   const [logs, setLogs] = useState([]);
   const [result, setResult] = useState(null);
-
   const logPanelRef = useRef(null);
 
   useEffect(() => {
-    if (logPanelRef.current) {
-      logPanelRef.current.scrollTop = logPanelRef.current.scrollHeight;
-    }
+    if (logPanelRef.current) logPanelRef.current.scrollTop = logPanelRef.current.scrollHeight;
   }, [logs]);
 
   useEffect(() => {
-    if (ctx.socket) {
-      const handleStart = (data) => {
-        setLogs(prev => [...prev, `▶ Task started: ${data.task}`]);
-      };
-      const handleDone = () => {
-        setLogs(prev => [...prev, '✓ Task completed']);
-      };
-      const handleError = (data) => {
-        setLogs(prev => [...prev, `✗ Error: ${data.error}`]);
-      };
-
-      ctx.socket.on('browser:start', handleStart);
-      ctx.socket.on('browser:done', handleDone);
-      ctx.socket.on('browser:error', handleError);
-
-      return () => {
-        ctx.socket.off('browser:start', handleStart);
-        ctx.socket.off('browser:done', handleDone);
-        ctx.socket.off('browser:error', handleError);
-      };
-    }
+    if (!ctx.socket) return;
+    const handleStart = (data) => setLogs(prev => [...prev, `▶ ${data.task}`]);
+    const handleDone = () => setLogs(prev => [...prev, '✓ Task completed']);
+    const handleError = (data) => setLogs(prev => [...prev, `✗ ${data.error}`]);
+    ctx.socket.on('browser:start', handleStart);
+    ctx.socket.on('browser:done', handleDone);
+    ctx.socket.on('browser:error', handleError);
+    return () => {
+      ctx.socket.off('browser:start', handleStart);
+      ctx.socket.off('browser:done', handleDone);
+      ctx.socket.off('browser:error', handleError);
+    };
   }, [ctx.socket]);
 
   const handleRunTask = async () => {
@@ -53,11 +41,7 @@ export default function Browser({ ctx }) {
     setStatus('Running');
 
     try {
-      const data = await ctx.API.post('/browser/task', {
-        task: trimmedTask,
-        hidden
-      });
-
+      const data = await ctx.API.post('/browser/task', { task: trimmedTask, hidden });
       const passed = data.verdict?.passed;
       setStatus(passed ? 'Success' : 'Failed');
       setResult({
@@ -67,7 +51,7 @@ export default function Browser({ ctx }) {
         report: data.report || null
       });
     } catch (err) {
-      setLogs(prev => [...prev, `✗ Error: ${err.message}`]);
+      setLogs(prev => [...prev, `✗ ${err.message}`]);
       setStatus('Failed');
       ctx.showToast(err.message, 'error');
     } finally {
@@ -82,113 +66,79 @@ export default function Browser({ ctx }) {
   };
 
   return (
-    <div className="animate-slide-up">
-      <div className="card" style={{ maxWidth: '700px' }}>
+    <div className="animate-slide-up stack-lg">
+      <div className="card form-card">
         <div className="card-header">
           <div>
-            <div className="card-title">Browser Agent</div>
-            <div className="card-subtitle">
-              Describe a task in plain English — the AI will execute it in the browser
-            </div>
+            <div className="card-title">Run a task</div>
+            <div className="card-subtitle">Describe what you want done — the subagent navigates, reads, and acts in a real browser.</div>
           </div>
         </div>
 
         <div className="input-group">
-          <label className="input-label">Task Description</label>
+          <label className="input-label" htmlFor="browser-task">Task</label>
           <textarea
+            id="browser-task"
             className="input"
-            rows="3"
+            rows={4}
             value={task}
             onChange={(e) => setTask(e.target.value)}
-            placeholder="e.g., Go to reddit.com/r/programming and list the top 10 posts with upvote counts"
+            placeholder="e.g. Go to Hacker News and list the top 5 posts with their point counts"
             disabled={running}
-          ></textarea>
+          />
         </div>
 
         <div className="input-group">
-          <label className="input-label">Mode</label>
+          <label className="input-label" htmlFor="browser-mode">Visibility</label>
           <select
+            id="browser-mode"
             className="input"
             value={hidden ? 'true' : 'false'}
             onChange={(e) => setHidden(e.target.value === 'true')}
             disabled={running}
           >
-            <option value="false">Visible</option>
+            <option value="false">Visible browser</option>
             <option value="true">Hidden (headless)</option>
           </select>
         </div>
 
-        <button
-          className="btn btn-primary btn-lg w-full"
-          onClick={handleRunTask}
-          disabled={running}
-          style={{ width: '100%' }}
-        >
-          {running ? (
-            <>
-              <span className="spinner"></span> Running...
-            </>
-          ) : (
-            '▶ Run Task'
-          )}
+        <button type="button" className="btn btn-primary btn-lg w-full" onClick={handleRunTask} disabled={running}>
+          {running ? <><span className="spinner" /> Running…</> : 'Run task'}
         </button>
       </div>
 
       {progressVisible && (
-        <div style={{ marginTop: '24px' }}>
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title">Task Execution</div>
-              <span
-                className={`badge ${
-                  status === 'Success'
-                    ? 'badge-success'
-                    : status === 'Failed'
-                    ? 'badge-danger'
-                    : 'badge-info'
-                }`}
-              >
-                {status}
-              </span>
-            </div>
-            <div className="log-panel" ref={logPanelRef}>
-              {logs.map((log, i) => (
-                <div key={i} className={getLogClass(log)}>
-                  {log}
-                </div>
-              ))}
-            </div>
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Execution log</div>
+            <span className={`badge ${status === 'Success' ? 'badge-success' : status === 'Failed' ? 'badge-danger' : 'badge-info'}`}>
+              {status}
+            </span>
+          </div>
+          <div className="log-panel" ref={logPanelRef}>
+            {logs.length === 0 ? (
+              <div className="log-entry info">Agent running…</div>
+            ) : (
+              logs.map((log, i) => <div key={i} className={getLogClass(log)}>{log}</div>)
+            )}
           </div>
         </div>
       )}
 
       {result && (
-        <div style={{ marginTop: '24px' }}>
-          <div className={`verdict-card ${result.passed ? 'passed' : 'failed'}`}>
-            <div className="verdict-icon">{result.passed ? '✅' : '❌'}</div>
-            <h3>{result.passed ? 'Task Completed' : 'Task Failed'}</h3>
-            <p>{result.reason}</p>
-            {result.report && (
-              <div className="report-container" style={{
-                marginTop: '16px',
-                textAlign: 'left',
-                background: 'rgba(255, 255, 255, 0.05)',
-                padding: '16px',
-                borderRadius: '8px',
-                border: '1px solid var(--border-subtle)',
-                width: '100%',
-                boxSizing: 'border-box'
-              }}>
-                <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>Agent Report / Answer</h4>
-                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: '1.5' }}>{result.report}</p>
-              </div>
-            )}
-            {result.runId && (
-              <p style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                Run: {result.runId}
-              </p>
-            )}
-          </div>
+        <div className={`verdict-card ${result.passed ? 'passed' : 'failed'}`}>
+          <div className="verdict-icon">{result.passed ? '✓' : '✕'}</div>
+          <h3>{result.passed ? 'Task completed' : 'Task failed'}</h3>
+          <p>{result.reason}</p>
+          {result.report && (
+            <div className="report-box">
+              <h4>Agent report</h4>
+              <p>{result.report}</p>
+            </div>
+          )}
+          {result.runId && (
+            <p style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>Run ID: {result.runId}</p>
+          )}
         </div>
       )}
     </div>
