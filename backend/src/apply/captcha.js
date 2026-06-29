@@ -1,9 +1,202 @@
 import readline from 'readline';
 
+// ─── Cloudflare Turnstile Challenge Classifier ──────────────────────────────
+// Ported from Scrapling _stealth.py L544-577 + _base.py _detect_cloudflare()
+
+const CF_CHALLENGE_PATTERN = /^https?:\/\/challenges\.cloudflare\.com\/cdn-cgi\/challenge-platform\/.*/;
+
+/**
+ * Detect the specific type of Cloudflare challenge on the page.
+ * Returns: 'non-interactive' | 'managed' | 'interactive' | 'embedded' | null
+ */
+export async function detectCloudflareType(page) {
+  try {
+    const html = await page.content().catch(() => '');
+
+    // Check cType markers in page source (Scrapling's exact detection)
+    for (const ctype of ['non-interactive', 'managed', 'interactive']) {
+      if (html.includes(`cType: '${ctype}'`)) return ctype;
+    }
+
+    // Check for embedded Turnstile (script tag inside Shadow iframe)
+    const hasEmbedded = await page.evaluate(() => {
+      return !!document.querySelector('script[src*="challenges.cloudflare.com/turnstile/v"]');
+    }).catch(() => false);
+    if (hasEmbedded) return 'embedded';
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Auto-solve Cloudflare Turnstile challenges.
+ * Ported from Scrapling _stealth.py L107-182 (_cloudflare_solver).
+ *
+ * @param {import('playwright').Page} page
+ * @param {object} options
+ * @param {number} options.maxAttempts - Max solver attempts (default: 3)
+ * @param {number} options.timeout - Wait timeout in ms (default: 15000)
+ * @returns {boolean} true if solved or no challenge found, false if failed
+ */
+export async function solveCloudfareTurnstile(page, options = {}) {
+  const { maxAttempts = 3, timeout = 15000 } = options;
+
+  try {
+    // Wait for network to settle
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+
+    const challengeType = await detectCloudflareType(page);
+    if (!challengeType) {
+      return true; // No challenge present
+    }
+    console.log(`  [CF-SOLVER] Turnstile type: "${challengeType}"`);
+
+    // Non-interactive: just wait for it to disappear
+    if (challengeType === 'non-interactive') {
+      const startTime = Date.now();
+      while (Date.now() - startTime < timeout) {
+        const title = await page.title().catch(() => '');
+        if (!title.includes('Just a moment')) {
+          console.log('  [CF-SOLVER] Non-interactive challenge resolved.');
+          return true;
+        }
+        await page.waitForTimeout(1000);
+      }
+      console.log('  [CF-SOLVER] Non-interactive challenge did not resolve in time.');
+      return false;
+    }
+
+    // Interactive / managed / embedded: find and click the checkbox
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const boxSelector = challengeType === 'embedded'
+        ? '#cf_turnstile div, #cf-turnstile div, .turnstile>div>div'
+        : '.main-content p+div>div>div';
+
+      // For non-embedded: wait for verify spinner to disappear
+      if (challengeType !== 'embedded') {
+        const verifyStart = Date.now();
+        while (Date.now() - verifyStart < 5000) {
+          const content = await page.content().catch(() => '');
+          if (!content.includes('Verifying you are human.')) break;
+          await page.waitForTimeout(500);
+        }
+      }
+
+      // Try to find the Turnstile iframe
+      let outerBox = null;
+      const frames = page.frames();
+      const cfFrame = frames.find(f => CF_CHALLENGE_PATTERN.test(f.url()));
+
+      if (cfFrame) {
+        try {
+          await cfFrame.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => {});
+          const frameEl = await cfFrame.frameElement();
+
+          // Wait for iframe to be visible (non-embedded)
+          if (challengeType !== 'embedded') {
+            const visStart = Date.now();
+            while (Date.now() - visStart < 3000) {
+              const visible = await frameEl.isVisible().catch(() => false);
+              if (visible) break;
+              await page.waitForTimeout(500);
+            }
+          }
+
+          outerBox = await frameEl.boundingBox();
+        } catch {
+          // Iframe access failed, fall through to locator
+        }
+      }
+
+      if (!outerBox) {
+        // Check if challenge already resolved
+        const title = await page.title().catch(() => '');
+        if (!title.includes('Just a moment')) {
+          console.log('  [CF-SOLVER] Challenge resolved (no iframe found).');
+          return true;
+        }
+
+        // Fall back to locator-based box detection
+        try {
+          outerBox = await page.locator(boxSelector).last().boundingBox({ timeout: 3000 });
+        } catch {
+          console.log(`  [CF-SOLVER] Could not locate Turnstile box (attempt ${attempt + 1}/${maxAttempts}).`);
+          await page.waitForTimeout(1000);
+          continue;
+        }
+      }
+
+      if (!outerBox) {
+        await page.waitForTimeout(1000);
+        continue;
+      }
+
+      // Calculate click coordinates (Scrapling's exact offsets: x+26-28, y+25-27)
+      const captchaX = outerBox.x + 26 + Math.random() * 3;
+      const captchaY = outerBox.y + 25 + Math.random() * 3;
+
+      console.log(`  [CF-SOLVER] Clicking Turnstile at (${Math.round(captchaX)}, ${Math.round(captchaY)})...`);
+      await page.mouse.click(captchaX, captchaY, {
+        delay: 100 + Math.floor(Math.random() * 100),
+        button: 'left',
+      });
+
+      // Wait for network idle after click
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+
+      // Wait for "Just a moment" to disappear
+      if (challengeType !== 'embedded') {
+        const waitStart = Date.now();
+        let resolved = false;
+        while (Date.now() - waitStart < 10000) {
+          const title = await page.title().catch(() => '');
+          if (!title.includes('Just a moment')) {
+            resolved = true;
+            break;
+          }
+          await page.waitForTimeout(100);
+        }
+        if (resolved) {
+          console.log('  [CF-SOLVER] Turnstile challenge solved!');
+          return true;
+        }
+      } else {
+        // Embedded: wait a bit and check
+        await page.waitForTimeout(2000);
+        const title = await page.title().catch(() => '');
+        if (!title.includes('Just a moment')) {
+          console.log('  [CF-SOLVER] Embedded Turnstile challenge solved!');
+          return true;
+        }
+      }
+
+      console.log(`  [CF-SOLVER] Challenge persists, retrying (attempt ${attempt + 1}/${maxAttempts})...`);
+    }
+
+    console.log('  [CF-SOLVER] Failed to solve Turnstile after all attempts.');
+    return false;
+  } catch (err) {
+    console.error('  [CF-SOLVER] Error:', err.message);
+    return false;
+  }
+}
+
+// ─── Main CAPTCHA detector ──────────────────────────────────────────────────
+
 /**
  * Detect if any visible CAPTCHA or verification challenge is present on the page.
+ * If a Cloudflare Turnstile challenge is found, auto-solve it.
+ *
+ * @param {import('playwright').Page} page
+ * @param {object} options
+ * @param {boolean} options.autoSolve - Auto-solve Turnstile if detected (default: true)
+ * @returns {boolean} true if a CAPTCHA is present (and unsolved), false otherwise
  */
-export async function detectCaptcha(page) {
+export async function detectCaptcha(page, options = {}) {
+  const { autoSolve = true } = options;
+
   try {
     const title = (await page.title().catch(() => '')).toLowerCase();
     const url = (page.url() || '').toLowerCase();
@@ -22,6 +215,13 @@ export async function detectCaptcha(page) {
     
     if (isTurnstile) {
       console.log(`\n  [CAPTCHA] Cloudflare Turnstile challenge detected on page.`);
+      if (autoSolve) {
+        const solved = await solveCloudfareTurnstile(page);
+        if (solved) {
+          console.log('  [CAPTCHA] Turnstile auto-solved successfully.');
+          return false; // No longer blocking
+        }
+      }
       return true;
     }
 

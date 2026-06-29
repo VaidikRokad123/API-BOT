@@ -18,6 +18,7 @@ import { createRunLogger } from './logger.js';
 import { loadDomainSkill, saveDomainSkill, prepareDomainSkillForReplay, attachElementHashToHistoryEntry } from './domain-skills.js';
 import { checkDomain, wrapContent, scanContent } from './idpi.js';
 import { attachDialogHandlers } from './dialog-handlers.js';
+import { installRouteBlocker } from './ad-blocker.js';
 
 const DEFAULT_ALLOWED_DOMAINS = [
   '*.perplexity.ai', 'perplexity.ai',
@@ -84,6 +85,12 @@ export async function runBrowserSubagent(task, options = {}) {
   const appCtx = await newStealthContext(appBrowser);
   const page = await appCtx.newPage();
   attachDialogHandlers(page);
+  // Install ad/tracker blocker to speed up page loads and reduce DOM noise (Scrapling pattern)
+  if (options.blockAds !== false) {
+    await installRouteBlocker(page, { blockAds: true, blockResources: false }).catch(err => {
+      console.warn('  [AD-BLOCKER] Failed to install route blocker:', err.message);
+    });
+  }
   const consoleBuffer = attachConsoleCapture(page);
 
   let research = null;

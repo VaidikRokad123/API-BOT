@@ -151,6 +151,46 @@ const USER_AGENTS = {
   chrome: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
 };
 
+/**
+ * Generate a version-matched User-Agent string.
+ * Ported from Scrapling's fingerprints.py — the key insight is that if your
+ * Playwright launches Chromium v128 but your UA says Chrome/120, anti-bot
+ * systems detect the mismatch. This extracts the actual version at runtime.
+ *
+ * @param {string} channel - 'chrome' | 'chromium' | 'msedge'
+ * @returns {string} User-Agent string matching the platform + version
+ */
+export function generateMatchedUserAgent(channel = 'chrome') {
+  try {
+    // Try to detect installed Chrome version from the executable
+    const os = process.platform;
+    let version = '128.0.0.0'; // Reasonable modern default
+
+    if (os === 'win32') {
+      try {
+        const { execSync } = require('child_process');
+        const output = execSync(
+          'reg query "HKLM\\SOFTWARE\\Google\\Chrome\\BLBeacon" /v version 2>nul',
+          { encoding: 'utf8', timeout: 3000 }
+        );
+        const match = output.match(/version\s+REG_SZ\s+(\S+)/i);
+        if (match) version = match[1];
+      } catch { /* Use default */ }
+    }
+
+    const platform = os === 'win32' ? 'Windows NT 10.0; Win64; x64'
+      : os === 'darwin' ? 'Macintosh; Intel Mac OS X 10_15_7'
+      : 'X11; Linux x86_64';
+
+    return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`;
+  } catch {
+    return USER_AGENTS.chrome; // Fallback to hardcoded
+  }
+}
+
+// Generate at module load time so it's consistent for the session
+const MATCHED_UA = generateMatchedUserAgent();
+
 // ─── Launch & context ──────────────────────────────────────────────────────
 
 export async function launchBrowser(visible = false, profileSuffix = '', options = {}) {
@@ -209,7 +249,7 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
         '--window-size=1280,900',
       ],
       viewport: { width: 1280, height: 900 },
-      userAgent: USER_AGENTS.chrome,
+      userAgent: MATCHED_UA,
     });
     return new PlaywrightPersistentBrowser(context);
   }
@@ -236,7 +276,7 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
       '--window-size=1280,900',
     ],
   });
-  return new PlaywrightBrowser(pwBrowser, { userAgent: USER_AGENTS.chrome });
+  return new PlaywrightBrowser(pwBrowser, { userAgent: MATCHED_UA });
 }
 
 export async function newStealthContext(browser, storageStatePath = null) {
@@ -267,7 +307,7 @@ export async function newStealthContext(browser, storageStatePath = null) {
     }
     await browser.initContext({
       storageState,
-      userAgent: USER_AGENTS.chrome,
+      userAgent: MATCHED_UA,
       viewport: { width: 1280, height: 900 },
     });
     return browser;
@@ -284,7 +324,7 @@ export async function newStealthContext(browser, storageStatePath = null) {
 
       if (!realBrowser) {
         const pref = readBrowserPref();
-        await page.setUserAgent(USER_AGENTS[pref] || USER_AGENTS.chrome);
+        await page.setUserAgent(MATCHED_UA);
         await page.setViewport({ width: 1280, height: 900 });
       }
 

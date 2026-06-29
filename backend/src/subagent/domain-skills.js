@@ -4,6 +4,7 @@ import path from 'path';
 import { DOMAIN_SKILLS_DIR as SKILL_DIR } from '../config.js';
 import { redactCredentialArgs } from '../credentials.js';
 import { computeElementHash, findElementsByHash, resolveHashToElement } from './element-hash.js';
+import { elementToFingerprint, relocateFromPerception, calculateSimilarityScore } from './element-relocator.js';
 
 function safeHost(hostname) {
   return String(hostname || 'unknown').toLowerCase().replace(/[^a-z0-9.-]/g, '_');
@@ -74,29 +75,45 @@ export function prepareDomainSkillForReplay(skill, observation, history = []) {
       continue;
     }
     const { match, ambiguous, count } = resolveHashToElement(elements, hash);
-    if (!match) {
-      return {
-        ...skill,
-        strategy: validated,
-        skillReplay: { mode: 'fallback', reason: count === 0 ? 'hash_no_match' : 'hash_ambiguous', hash, matchCount: count }
-      };
+    if (match && !ambiguous) {
+      // Exact hash match — use it directly
+      validated.push({
+        ...action,
+        args: {
+          ...action.args,
+          ref: match.ref,
+          selector: match.selector,
+          elementHash: hash
+        }
+      });
+      continue;
     }
-    if (ambiguous) {
-      return {
-        ...skill,
-        strategy: validated,
-        skillReplay: { mode: 'fallback', reason: 'hash_ambiguous', hash, matchCount: count }
-      };
-    }
-    validated.push({
-      ...action,
-      args: {
-        ...action.args,
-        ref: match.ref,
-        selector: match.selector,
-        elementHash: hash
+
+    // Hash miss → try adaptive relocation (Scrapling pattern)
+    const savedFingerprint = action.fingerprint || action.args?.fingerprint;
+    if (savedFingerprint && elements.length > 0) {
+      const relocated = relocateFromPerception(savedFingerprint, elements, 45);
+      if (relocated.match) {
+        console.log(`  [RELOCATOR] Fuzzy-matched element (score: ${relocated.score.toFixed(1)}%) for hash ${hash.slice(0, 8)}...`);
+        validated.push({
+          ...action,
+          args: {
+            ...action.args,
+            ref: relocated.match.ref,
+            selector: relocated.match.selector,
+            elementHash: computeElementHash(relocated.match)
+          }
+        });
+        continue;
       }
-    });
+    }
+
+    // Both hash and relocator failed — abort cache
+    return {
+      ...skill,
+      strategy: validated,
+      skillReplay: { mode: 'fallback', reason: count === 0 ? 'hash_no_match' : 'hash_ambiguous', hash, matchCount: count }
+    };
   }
 
   return {
@@ -129,6 +146,13 @@ export function saveDomainSkill(url, history = [], research = null) {
     .map(h => {
       const hash = h.elementHash || actionElementHash(h);
       const args = redactCredentialArgs(h.args || {});
+
+      // Build element fingerprint for adaptive relocation (Scrapling pattern)
+      let fingerprint = null;
+      if (hash && h.targetElement) {
+        fingerprint = elementToFingerprint(h.targetElement);
+      }
+
       if (hash) {
         delete args.selector;
         delete args.ref;
@@ -137,6 +161,7 @@ export function saveDomainSkill(url, history = [], research = null) {
       return {
         tool: h.tool,
         elementHash: hash || null,
+        fingerprint,
         sourceStep: h.step,
         args,
         resultSummary: String(h.result || '').slice(0, 120)
