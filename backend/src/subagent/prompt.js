@@ -22,7 +22,7 @@ function formatButtons(buttons = []) {
   ).join('\n');
 }
 
-export function buildSubagentPrompt(task, obs, history = [], profile = null, research = null, domainSkill = null, reasoningPlan = null) {
+export function buildSubagentPrompt(task, obs, history = [], profile = null, research = null, domainSkill = null, reasoningPlan = null, jobNotes = null) {
   const toolsInfo = Object.entries(TOOL_REGISTRY).map(([name, def]) => {
     return `- ${name}: ${def.description} | Params: ${JSON.stringify(def.params)}`;
   }).join('\n');
@@ -58,6 +58,10 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
 
   const reasoningPlanBlock = reasoningPlan
     ? `\nFORM FILLING REASONING PLAN (follow this plan to map candidate profile to form fields):\n${reasoningPlan}\n`
+    : '';
+
+  const jobNotesBlock = jobNotes
+    ? `\nSPECIFIC JOB APPLICATION INSTRUCTIONS:\n${jobNotes}\n`
     : '';
 
   if (profile) {
@@ -113,6 +117,7 @@ ${toolsInfo}
 ${candidateBlock}
 ${domainSkillBlock}
 ${reasoningPlanBlock}
+${jobNotesBlock}
 ${guidelinesBlock}
 
 HISTORY:

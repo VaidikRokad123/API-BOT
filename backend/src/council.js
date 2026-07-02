@@ -12,21 +12,30 @@ function loggedInProviders() {
 
 // Purpose-built opener — deliberately does NOT touch ai.js's _providerKey singleton,
 // so several providers can run concurrently. Returns a `send` closure bound to its page.
-async function openProvider(key, visible) {
+async function openProvider(key, visible, councilId) {
   const provider = getProvider(key);
-  const browser  = await launchBrowser(visible, key, { forceAutomated: true });
-  const ctx      = await newStealthContext(browser, sessionFile(key));
-  const page     = await ctx.newPage();
+  const sessionName = `council-${councilId}-${key}`;
+  const tempSessionFile = sessionFile(sessionName);
+
+  const origFile = sessionFile(key);
+  if (fs.existsSync(origFile)) {
+    fs.copyFileSync(origFile, tempSessionFile);
+  }
+
+  const browser = await launchBrowser(visible, sessionName, { forceAutomated: true });
+  const ctx = await newStealthContext(browser, tempSessionFile);
+  const page = await ctx.newPage();
 
   await page.goto(provider.config.url);
   await page.waitForSelector(provider.config.readySelector, { timeout: 20000 });
 
   return {
     key,
-    name:    provider.config.name,
+    name: provider.config.name,
     browser,
     page,
-    send:    (text) => provider.sendMessage(page, text),
+    tempSessionFile,
+    send: (text) => provider.sendMessage(page, text),
   };
 }
 
@@ -50,7 +59,7 @@ const DRULE = '═'.repeat(60);
 
 export async function council(questionText, rl, visible = true) {
   if (!questionText) { console.log('\n  Usage: /council <question>\n'); return; }
-  if (!rl)           { console.log('\n  /council must be run from the console.\n'); return; }
+  if (!rl) { console.log('\n  /council must be run from the console.\n'); return; }
 
   const keys = loggedInProviders();
   if (keys.length < 2) {
@@ -58,10 +67,11 @@ export async function council(questionText, rl, visible = true) {
     return;
   }
 
-  console.log(`\n  Convening council: ${keys.map((k) => getProvider(k).config.name).join(', ')}\n`);
+  const councilId = Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+  console.log(`\n  Convening council (session ID: council-${councilId}): ${keys.map((k) => getProvider(k).config.name).join(', ')}\n`);
 
   // Open all providers in parallel; drop any that fail (e.g. expired session).
-  const opened   = await Promise.allSettled(keys.map((k) => openProvider(k, visible)));
+  const opened = await Promise.allSettled(keys.map((k) => openProvider(k, visible, councilId)));
   const sessions = [];
   opened.forEach((r, i) => {
     if (r.status === 'fulfilled') sessions.push(r.value);
@@ -70,7 +80,12 @@ export async function council(questionText, rl, visible = true) {
 
   if (sessions.length < 2) {
     console.log('\n  Fewer than 2 providers available — aborting.\n');
-    await Promise.allSettled(sessions.map((s) => s.browser.close().catch(() => {})));
+    await Promise.allSettled(sessions.map((s) => s.browser.close().catch(() => { })));
+    sessions.forEach(s => {
+      if (s.tempSessionFile && fs.existsSync(s.tempSessionFile)) {
+        fs.rmSync(s.tempSessionFile, { force: true });
+      }
+    });
     return;
   }
 
@@ -112,7 +127,14 @@ export async function council(questionText, rl, visible = true) {
       console.log(`  ✗ Merge failed: ${e.message}\n`);
     }
   } finally {
-    await Promise.allSettled(sessions.map((s) => s.browser.close().catch(() => {})));
+    await Promise.allSettled(sessions.map((s) => s.browser.close().catch(() => { })));
+    sessions.forEach(s => {
+      if (s.tempSessionFile && fs.existsSync(s.tempSessionFile)) {
+        try {
+          fs.rmSync(s.tempSessionFile, { force: true });
+        } catch { /* ignore */ }
+      }
+    });
     console.log('  Council closed.\n');
   }
 }

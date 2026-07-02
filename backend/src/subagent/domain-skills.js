@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import { DOMAIN_SKILLS_DIR as SKILL_DIR } from '../config.js';
+import { DOMAIN_SKILLS_DIR as SKILL_DIR, WORKFLOWS_DIR } from '../config.js';
 import { redactCredentialArgs } from '../credentials.js';
 import { computeElementHash, findElementsByHash, resolveHashToElement } from './element-hash.js';
 import { elementToFingerprint, relocateFromPerception, calculateSimilarityScore } from './element-relocator.js';
@@ -135,7 +135,7 @@ export function attachElementHashToHistoryEntry(entry, observation) {
   return { ...entry, elementHash: target.elementHash || computeElementHash(target) };
 }
 
-export function saveDomainSkill(url, history = [], research = null) {
+export async function saveDomainSkill(url, history = [], research = null, aiPage = null, sendMessage = null) {
   const hostname = safeHost(hostnameFromUrl(url));
   fs.mkdirSync(SKILL_DIR, { recursive: true });
   const file = path.join(SKILL_DIR, `${hostname}.json`);
@@ -185,6 +185,45 @@ export function saveDomainSkill(url, history = [], research = null) {
     quirks
   };
   fs.writeFileSync(file, JSON.stringify(skill, null, 2));
+
+  // Write workflows/<hostname>.yaml companion file
+  fs.mkdirSync(WORKFLOWS_DIR, { recursive: true });
+  const yamlFile = path.join(WORKFLOWS_DIR, `${hostname}.yaml`);
+  
+  let yamlContent = '';
+  if (aiPage && sendMessage) {
+    const prompt = `You are a QA automation engineer. Summarize the successful browser form-filling automation below into a clean YAML file for future automation runs.
+
+History of executed steps:
+${history.map(h => `- Step ${h.step}: Tool: ${h.tool}, Args: ${JSON.stringify(h.args)}, Reasoning: ${h.reasoning}, Result: ${h.result}`).join('\n')}
+
+Create a YAML document with the following exact keys:
+- hostname: "${hostname}"
+- learnedAt: "${new Date().toISOString()}"
+- quirks:
+  - A list of brief plain-language quirks or special behaviors about this application portal (e.g. "submit button requires scrolling to bottom to enable", "react custom dropdown requires typing to filter", "requires signature canvas").
+- strategy_summary:
+  - A list of plain-language, high-level sequential steps performed to successfully fill the form (e.g. "1. Upload resume on landing page", "2. Click Apply Now", "3. Fill personal details on page 1", "4. Click next and verify success").
+
+Return ONLY raw YAML content. Do not write any markdown code block wraps (like \`\`\`yaml) or explanations.`;
+    try {
+      const raw = await sendMessage(aiPage, prompt);
+      yamlContent = raw.replace(/```yaml\s*/g, '').replace(/```\s*$/g, '').trim();
+    } catch (e) {
+      console.warn('  [WORKFLOW] Failed to summarize workflow with AI, using fallback.');
+    }
+  }
+
+  if (!yamlContent) {
+    yamlContent = `hostname: "${hostname}"
+learnedAt: "${new Date().toISOString()}"
+quirks:
+${quirks.map(q => `  - "${q}"`).join('\n') || '  - "None"'}
+strategy_summary:
+${actions.map((a, i) => `  - "Step ${i + 1}: ${a.tool} execution. Reasoning: ${a.args?.reasoning || 'No details'}"`).join('\n') || '  - "No actions performed"'}`;
+  }
+
+  fs.writeFileSync(yamlFile, yamlContent);
   return file;
 }
 

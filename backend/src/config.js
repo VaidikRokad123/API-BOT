@@ -7,6 +7,7 @@ const __dirname    = path.dirname(__filename);
 export const DATA_DIR          = path.join(__dirname, '..', 'data');
 export const SESSION_DIR       = path.join(__dirname, '..', 'session');
 export const DOMAIN_SKILLS_DIR = path.join(__dirname, '..', 'domain-skills');
+export const WORKFLOWS_DIR     = path.join(__dirname, '..', 'workflows');
 export const SUBAGENT_RUNS_DIR = path.join(__dirname, '..', 'subagent_runs');
 
 export const BROWSER_PROFILES_DIR = path.join(DATA_DIR, 'browser-profiles');

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import puppeteer from 'puppeteer-extra';
+import puppeteer from 'puppeteer';
 import { launchBrowser, readBrowserPref } from './browser.js';
 import { ACTIVE_FILE, sessionFile } from './config.js';
 import { getProvider } from './providers/index.js';

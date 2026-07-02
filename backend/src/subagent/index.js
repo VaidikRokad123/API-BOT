@@ -1,7 +1,8 @@
 import fs from 'fs';
+import path from 'path';
 import { openAiSession, sendMessage } from '../ai.js';
 import { launchBrowser, newStealthContext } from '../browser.js';
-import { PROFILE_FILE, PERMISSIONS_FILE } from '../config.js';
+import { PROFILE_FILE, PERMISSIONS_FILE, WORKFLOWS_DIR } from '../config.js';
 import { attachConsoleCapture } from './console.js';
 import { ArtifactRun } from './artifacts.js';
 import { buildObservation } from './perception.js';
@@ -37,7 +38,7 @@ async function duckDuckGoSearch(query, maxResults = 3) {
       throw new Error(`HTTP status ${response.status}`);
     }
     const html = await response.text();
-    
+
     // Parse DuckDuckGo search result links and snippets using RegExp
     const regex = /<a class="result__snippet"\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
     let match;
@@ -92,7 +93,7 @@ function extractQueryTerms(jobUrl, pageTitle, jsonLdString) {
     const matchAt = pageTitle.match(/(.+)\s+at\s+(.+)/i);
     const matchHiring = pageTitle.match(/(.+)\s+hiring\s+(.+)/i);
     const matchDash = pageTitle.match(/(.+?)\s*[\-|\|]\s*(.+)/);
-    
+
     if (matchAt) {
       title = matchAt[1].trim();
       company = matchAt[2].trim();
@@ -120,11 +121,11 @@ function extractQueryTerms(jobUrl, pageTitle, jsonLdString) {
 /** Form Reasoning Pre-pass (inspired by ReasoningNode) */
 async function generateReasoningPlan(aiPage, page, observation, profile, research, sendMessage) {
   console.log('\n  🧠 Running form reasoning pass...');
-  
-  const researchText = research 
-    ? `Job: ${research.companyName} | ${research.jobTitle}\nMatched Skills: ${research.matchingSkills?.join(', ')}\nSalary Quote: ${research.salaryToQuote ?? research.salaryFallback}` 
+
+  const researchText = research
+    ? `Job: ${research.companyName} | ${research.jobTitle}\nMatched Skills: ${research.matchingSkills?.join(', ')}\nSalary Quote: ${research.salaryToQuote ?? research.salaryFallback}`
     : '';
-  
+
   const prompt = `
 You are preparing to fill a form on a job application page.
 Based on the candidate profile and current page elements, create a detailed field-mapping plan for the fields on this page.
@@ -162,6 +163,48 @@ Return the plan as a clean, structured bullet-point list. No markdown JSON block
   } catch (err) {
     console.log('  ⚠ Reasoning pass failed — continuing without mapping plan');
     return null;
+  }
+}
+
+/** Parse workflow lines into a list of planned steps */
+function getPlannedSteps(workflowText) {
+  if (!workflowText) return [];
+  return workflowText
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line && (line.match(/^\d+\./) || line.startsWith('-') || line.startsWith('*')))
+    .map(line => line.replace(/^\d+\.\s*|-\s*|\*\s*/, ''));
+}
+
+/** Evaluate the result of a single step immediately using the AI (concept from bowser-qa-agent) */
+async function evaluateStep(aiPage, task, action, obs, sendMessage) {
+  const prompt = `You are a browser automation QA validator checking the outcome of a single action step.
+Task goal: "${task}"
+Last Action Executed:
+${JSON.stringify({ tool: action.tool, args: action.args, reasoning: action.reasoning }, null, 2)}
+
+Current Browser Page State:
+URL: ${obs.url}
+Title: ${obs.title}
+Text Snippet: ${obs.pageText?.slice(0, 2000)}
+
+Analyze if the last action was successful and correct for the task.
+- If it succeeded without error/warning, return "PASS".
+- If it failed, triggered a validation block, or made a clear mistake, return "FAIL".
+- If it was redundant or skipped, return "SKIPPED".
+
+Return ONLY this JSON structure (no markdown wraps, no extra text):
+{"status":"PASS|FAIL|SKIPPED","reason":"Short explanation"}`;
+
+  try {
+    const raw = await sendMessage(aiPage, prompt);
+    const parsed = sanitizeGptJson(raw);
+    return {
+      status: ['PASS', 'FAIL', 'SKIPPED'].includes(parsed.status) ? parsed.status : 'PASS',
+      reason: parsed.reason || 'Step evaluation completed.'
+    };
+  } catch (err) {
+    return { status: 'PASS', reason: `Auto-evaluation fallback: ${err.message}` };
   }
 }
 
@@ -242,6 +285,22 @@ export async function runBrowserSubagent(task, options = {}) {
   let applicationUrl = options.jobUrl || '';
   const permissions = readPermissions(options);
   const domainSkill = options.jobUrl ? loadDomainSkill(options.jobUrl) : null;
+
+  // Load human-readable companion YAML workflow if exists
+  let workflowContext = null;
+  if (options.jobUrl) {
+    const hostname = String(new URL(options.jobUrl).hostname).toLowerCase().replace(/[^a-z0-9.-]/g, '_');
+    const workflowFile = path.join(WORKFLOWS_DIR, `${hostname}.yaml`);
+    if (fs.existsSync(workflowFile)) {
+      try {
+        workflowContext = fs.readFileSync(workflowFile, 'utf8');
+        logger.info({ hostname }, 'loaded_workflow_yaml_context');
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
   const fsm = await createSubagentFsm({ isApply: !!options.isApply, run, logger });
 
   const ctx = {
@@ -257,6 +316,8 @@ export async function runBrowserSubagent(task, options = {}) {
   };
 
   const history = [];
+  const stepLedger = [];
+  const plannedSteps = getPlannedSteps(options.jobWorkflow);
   let finishPayload = null;
 
   try {
@@ -321,7 +382,7 @@ Return ONLY this JSON:
             researchInput += `JSON-LD Metadata:\n${scraped.jsonLd}\n\n`;
           }
           researchInput += `Cleaned Page Content:\n${scraped.cleanedText}`;
-          
+
           // Perform web search grounding if we have company/role
           const extracted = extractQueryTerms(applicationUrl, scraped.title, scraped.jsonLd);
           if (extracted.company || extracted.title) {
@@ -352,7 +413,9 @@ Return ONLY this JSON:
     let lastUrlForReasoning = '';
     let reasoningPlan = null;
 
+    let finalStepIndex = 1;
     for (let step = 1; step <= maxSteps; step++) {
+      finalStepIndex = step;
       ctx.step = step;
       logger = await createRunLogger(run.runId, fsm.state);
       ctx.logger = logger;
@@ -409,7 +472,6 @@ Return ONLY this JSON:
         reasoningPlan = await generateReasoningPlan(aiPage, page, observation, profile, ctx.research, sendMessage);
       }
 
-      await run.saveScreenshot(page, step, 'step');
       run.appendConsole(consoleBuffer.getBuffer());
       consoleBuffer.clear();
 
@@ -426,11 +488,13 @@ Return ONLY this JSON:
       let stepAttempt = 1;
       const maxStepAttempts = 2;
       let stepSuccess = false;
+      let stepStatus = 'PASS';
+      let stepReason = 'Step executed successfully.';
 
       while (stepAttempt <= maxStepAttempts) {
         try {
           if (stepAttempt === 1) {
-            const prompt = buildSubagentPrompt(task, observation, history, promptProfile, ctx.research, replaySkill, reasoningPlan);
+            const prompt = buildSubagentPrompt(task, observation, history, promptProfile, ctx.research, replaySkill, reasoningPlan, options.jobNotes || options.jobWorkflow, workflowContext);
             logger.info({ step }, 'prompt_subagent_brain');
             raw = await sendMessage(aiPage, prompt);
           } else {
@@ -486,16 +550,29 @@ Return ONLY this JSON:
             return errorElements.some(el => {
               const rect = el.getBoundingClientRect();
               const style = window.getComputedStyle(el);
-              return rect.width > 0 && rect.height > 0 && 
-                     style.display !== 'none' && 
-                     style.visibility !== 'hidden' && 
-                     style.opacity !== '0' &&
-                     el.innerText.trim().length > 0;
+              return rect.width > 0 && rect.height > 0 &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                style.opacity !== '0' &&
+                el.innerText.trim().length > 0;
             });
           }).catch(() => false);
 
           if (hasSemanticError) {
             errorObj = new Error('Semantic validation error or form warning detected on the page after action execution.');
+            errorType = 'semantic';
+            throw errorObj;
+          }
+
+          // Evaluate action outcome immediately (evaluateStep concept)
+          const screenshotFilename = await run.saveScreenshot(page, step, 'outcome');
+          const evalResult = await evaluateStep(aiPage, task, action, observation, sendMessage);
+
+          stepStatus = evalResult.status;
+          stepReason = evalResult.reason;
+
+          if (stepStatus === 'FAIL') {
+            errorObj = new Error(`Step validation failed: ${evalResult.reason}`);
             errorType = 'semantic';
             throw errorObj;
           }
@@ -510,6 +587,20 @@ Return ONLY this JSON:
           }, observation));
           run.writeStepTrace(step, action, observation, result);
 
+          let stepName = action.reasoning || `${action.tool} ${JSON.stringify(action.args)}`;
+          if (plannedSteps.length >= step) {
+            stepName = `[Planned: ${plannedSteps[step - 1]}] ${stepName}`;
+          }
+
+          stepLedger.push({
+            step,
+            name: stepName,
+            status: stepStatus,
+            screenshot: screenshotFilename,
+            reason: stepReason,
+            consoleErrors: null
+          });
+
           if (isSubmitAction(action)) {
             fsm.send('SUBMITTED', { step });
             stepSuccess = true;
@@ -522,9 +613,26 @@ Return ONLY this JSON:
 
         } catch (stepErr) {
           logger.warn({ step, attempt: stepAttempt, errorType, err: stepErr.message }, 'step_attempt_failed');
-          
+
           if (stepAttempt >= maxStepAttempts) {
             // Failed after all retries
+            const screenshotFilename = await run.saveScreenshot(page, step, 'failed');
+            const consoleErrors = consoleBuffer.getBuffer();
+
+            let stepName = action ? (action.reasoning || `${action.tool} ${JSON.stringify(action.args)}`) : 'Action Parse/Validation Step';
+            if (plannedSteps.length >= step) {
+              stepName = `[Planned: ${plannedSteps[step - 1]}] ${stepName}`;
+            }
+
+            stepLedger.push({
+              step,
+              name: stepName,
+              status: 'FAIL',
+              screenshot: screenshotFilename,
+              reason: stepErr.message,
+              consoleErrors: consoleErrors
+            });
+
             logger.error({ err: stepErr.message }, 'ai_action_failed');
             fsm.send('FAIL', { reason: stepErr.message });
             break;
@@ -538,6 +646,20 @@ Return ONLY this JSON:
       }
     }
 
+    // Mark remaining planned steps as SKIPPED
+    if (fsm.state === 'fail' && plannedSteps.length > finalStepIndex) {
+      for (let s = finalStepIndex + 1; s <= plannedSteps.length; s++) {
+        stepLedger.push({
+          step: s,
+          name: plannedSteps[s - 1],
+          status: 'SKIPPED',
+          screenshot: '—',
+          reason: 'Skipped due to previous failure.',
+          consoleErrors: null
+        });
+      }
+    }
+
     const agentReport = finishPayload
       ? (finishPayload.report || finishPayload.result || finishPayload.summary || finishPayload.answer || '')
       : '';
@@ -545,9 +667,22 @@ Return ONLY this JSON:
     const verdict = verdictWithFailureReason(await verifyGoal(page, task, aiPage, consoleBuffer, agentReport, { isApply: !!options.isApply }));
     logger.info({ verdict, agentReport: String(agentReport || '').slice(0, 1200) }, 'subagent_verdict');
 
-    run.writeReport(history, verdict, agentReport);
+    // If final verification failed and ledger hasn't registered a fail yet, append it.
+    if (!verdict.passed && !stepLedger.some(s => s.status === 'FAIL')) {
+      const screenshotFilename = await run.saveScreenshot(page, finalStepIndex + 1, 'failed_verification');
+      stepLedger.push({
+        step: finalStepIndex + 1,
+        name: 'Final Goal Verification',
+        status: 'FAIL',
+        screenshot: screenshotFilename,
+        reason: verdict.reason || 'Goal verification failed.',
+        consoleErrors: consoleBuffer.getBuffer()
+      });
+    }
+
+    run.writeReport(stepLedger, verdict, agentReport);
     if (options.isApply && verdict.passed) {
-      saveDomainSkill(applicationUrl || options.jobUrl, history, research);
+      await saveDomainSkill(applicationUrl || options.jobUrl, history, research, aiPage, sendMessage);
     }
 
     return {
@@ -559,8 +694,8 @@ Return ONLY this JSON:
       report: agentReport
     };
   } finally {
-    await aiBrowser.close().catch(() => {});
-    await appBrowser.close().catch(() => {});
+    await aiBrowser.close().catch(() => { });
+    await appBrowser.close().catch(() => { });
     logger.info({ reportPath: run.reportPath, dataRunDir: run.dataRunDir }, 'subagent_done');
   }
 }

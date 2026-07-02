@@ -98,7 +98,7 @@ export class ArtifactRun {
     fs.writeFileSync(this.tracePath, JSON.stringify(this.traceData, null, 2));
   }
 
-  writeReport(history, verdict, agentReport = '') {
+  writeReport(stepLedger, verdict, agentReport = '') {
     let report = `# Subagent Run Report - ${this.runId}\n\n`;
     report += `**Verdict:** ${verdict.passed ? '✅ PASSED' : '❌ FAILED'}\n`;
     report += `**Reason:** ${verdict.reason || 'No reason provided.'}\n`;
@@ -108,22 +108,24 @@ export class ArtifactRun {
     if (agentReport) {
       report += `\n---\n\n## Result / Answer\n\n${agentReport}\n`;
     }
-    report += `\n---\n\n## Step History\n\n`;
+    report += `\n---\n\n## Step Execution Ledger\n\n`;
+    report += `| Step | Action / Step Name | Status | Screenshot | Details / Errors |\n`;
+    report += `| --- | --- | --- | --- | --- |\n`;
 
-    for (const h of history) {
-      report += `### Step ${h.step}: ${h.tool}\n`;
-      report += `* **Reasoning:** ${h.reasoning || 'N/A'}\n`;
-      report += `* **Arguments:** \`${JSON.stringify(h.args)}\`\n`;
-      report += `* **Result:** ${h.result || 'Success'}\n`;
+    for (const s of stepLedger) {
+      const screenshotLink = s.screenshot && s.screenshot !== '—' ? `[View](${s.screenshot})` : '—';
       
-      // Link step screenshot if exists
-      const screenshotFilename = `step-${String(h.step).padStart(2, '0')}-step.png`;
-      if (fs.existsSync(path.join(this.runDir, screenshotFilename))) {
-        report += `* **Screenshot:** [View screenshot](${screenshotFilename})\n`;
+      let details = s.reason || '—';
+      if (s.consoleErrors && s.consoleErrors.length > 0) {
+        details = `**Reason:** ${s.reason}<br/><details><summary>Console Errors (${s.consoleErrors.length})</summary><pre>${s.consoleErrors.join('\n')}</pre></details>`;
       }
-      report += `\n`;
+      
+      const statusEmoji = s.status === 'PASS' ? '✅ PASS' : s.status === 'FAIL' ? '❌ FAIL' : '⏭️ SKIPPED';
+      
+      report += `| ${s.step} | ${s.name} | ${statusEmoji} | ${screenshotLink} | ${details} |\n`;
     }
 
+    report += `\n`;
     fs.writeFileSync(this.reportPath, report);
   }
 }

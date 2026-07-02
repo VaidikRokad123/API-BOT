@@ -47,6 +47,19 @@ function printBanner() {
   console.log('\n  Type /help for all commands.\n');
 }
 
+function printEngineGuide() {
+  console.log('  ┌────────────────────────────────────────────────────────────────────────┐');
+  console.log('  │  Engine Selection Guide:                                               │');
+  console.log('  ├────────────────────────────────────────────────────────────────────────┤');
+  console.log('  │  Need Google/OAuth logins, cookies, or personal extensions?           │');
+  console.log('  │  → Use a "Real" browser (real-chrome, real-brave, real-opera).         │');
+  console.log('  │  Note: Requires launching your local browser with remote debugging on. │');
+  console.log('  ├────────────────────────────────────────────────────────────────────────┤');
+  console.log('  │  Need parallelism, background automation, or CI-style runs?           │');
+  console.log('  │  → Use "Playwright" (isolated, headless-capable, parallel-safe).       │');
+  console.log('  └────────────────────────────────────────────────────────────────────────┘');
+}
+
 function printHelp() {
   console.log('\n  Commands:\n');
   const maxLen = Math.max(...Object.values(COMMANDS).map(c => c.usage.length));
@@ -143,6 +156,8 @@ const COMMANDS = {
 
       // 2. Choose Job App Browser (Hands)
       console.log('\n  Select browser engine for Job Application (Hands):');
+      printEngineGuide();
+      console.log();
       const appEngines = [
         { key: 'real-chrome', name: 'Real Chrome (connect over CDP)' },
         { key: 'real-brave', name: 'Real Brave (connect over CDP)' },
@@ -227,6 +242,8 @@ const COMMANDS = {
 
       // Interactive selection (default fallback when no args)
       console.log('\n  Select a browser:\n');
+      printEngineGuide();
+      console.log();
       engines.forEach((e, i) => {
         const marker = e.key === current ? ' ← active' : '';
         console.log(`    ${i + 1})  ${e.name}${marker}`);
@@ -242,6 +259,32 @@ const COMMANDS = {
       saveBrowserPref(engines[idx].key);
       console.log(`\n  ✓ Browser set to ${engines[idx].name}\n`);
     },
+  '/batch': {
+    usage:   '/batch <file.yaml> [--hidden]',
+    desc:    'Execute a batch of job applications defined in a YAML file',
+    handler: async (args, rl) => {
+      let yamlFile = args.replace('--hidden', '').trim();
+      
+      // Strip surrounding quotes if present
+      if ((yamlFile.startsWith('"') && yamlFile.endsWith('"')) || (yamlFile.startsWith("'") && yamlFile.endsWith("'"))) {
+        yamlFile = yamlFile.slice(1, -1).trim();
+      }
+
+      if (!yamlFile) {
+        console.log('\n  Usage: /batch <file.yaml> [--hidden]\n');
+        return;
+      }
+      
+      const hidden = args.includes('--hidden');
+      const { runBatch } = await import('./src/apply/batch.js');
+      const aiEngine = 'playwright';
+      const browserPref = readBrowserPref();
+      
+      await runBatch(yamlFile, !hidden, {
+        aiEngine,
+        browserEngine: browserPref
+      });
+    }
   },
 
   '/status': {

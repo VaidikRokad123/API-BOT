@@ -1,0 +1,8 @@
+- name: HackerNews Navigation
+  url: https://news.ycombinator.com/
+  engine: playwright
+  research: false
+  workflow: |
+    1. Navigate to HackerNews
+    2. Read page title
+    3. Click on the 'More' link

@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import vanillaPuppeteer from 'puppeteer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -18,9 +19,9 @@ const BROWSER_PREF_FILE = path.join(__dirname, '..', 'session', 'browser.json');
 
 const ENGINES = {
   playwright:    { name: 'Playwright (ariaSnapshot scraping)' },
-  'real-chrome': { name: 'Real Chrome (connect over CDP)', aiBlocked: true },
-  'real-brave':  { name: 'Real Brave (connect over CDP)', aiBlocked: true },
-  'real-opera':  { name: 'Real Opera (connect over CDP)', aiBlocked: true },
+  'real-chrome': { name: 'Real Chrome (connect over CDP)' },
+  'real-brave':  { name: 'Real Brave (connect over CDP)' },
+  'real-opera':  { name: 'Real Opera (connect over CDP)' },
 };
 
 const REAL_BROWSER_CONFIG = {
@@ -81,20 +82,27 @@ function isRealBrowserConnection(browser) {
 }
 
 async function connectRealBrowser(realConfig) {
-  const browser = await puppeteer.connect({
+  const browser = await vanillaPuppeteer.connect({
     browserURL: realConfig.cdpUrl,
     defaultViewport: null,
   });
   return markRealBrowserConnection(browser);
 }
 
-function startRealBrowser(realConfig) {
+function startRealBrowser(realConfig, engineKey = '') {
   if (!realConfig.executablePath || !fs.existsSync(realConfig.executablePath)) {
     throw new Error(`Could not find ${realConfig.label} executable at ${realConfig.executablePath}`);
   }
-  const child = spawn(realConfig.executablePath, [
+  
+  const args = [
     `--remote-debugging-port=${realConfig.port}`,
-  ], {
+  ];
+
+  if (engineKey === 'real-chrome' && process.env.CHROME_PROFILE) {
+    args.push(`--profile-directory=${process.env.CHROME_PROFILE}`);
+  }
+
+  const child = spawn(realConfig.executablePath, args, {
     detached: true,
     stdio: 'ignore',
     windowsHide: false,
@@ -208,7 +216,7 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
     } catch (err) {
       try {
         console.log(`  Real ${realConfig.label} is not listening at ${realConfig.cdpUrl}. Trying to start it...`);
-        startRealBrowser(realConfig);
+        startRealBrowser(realConfig, pref);
         return await waitForRealBrowser(realConfig);
       } catch (startErr) {
         const originalMessage = err?.message || String(err);
