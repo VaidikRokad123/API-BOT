@@ -17,35 +17,30 @@ export async function sendMessage(page, text) {
     throw new Error(`ChatGPT session has expired (redirected to: ${currentUrl}). Please run /login again.`);
   }
 
-  const popupSelectors = [
-    'button:has-text("Stay here")',
-    'button:has-text("Dismiss")',
-    'button:has-text("OK")',
-    'button:has-text("Close")',
-    'button:has-text("Got it")',
-    'button:has-text("Okay, let\'s go")',
-    '[class*="modal"] button',
-    '[role="dialog"] button:has-text("Close")',
-    '[role="dialog"] button:has-text("Dismiss")',
-  ];
-
-  for (const selector of popupSelectors) {
-    try {
-      const btn = await page.$(selector);
-      if (btn) {
-        const isVisible = await page.evaluate(el => {
-          const style = window.getComputedStyle(el);
-          return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetWidth > 0 && el.offsetHeight > 0;
-        }, btn).catch(() => false);
-
-        if (isVisible) {
-          await btn.click();
-          await new Promise(r => setTimeout(r, 300));
+  // Handle any popup blocker dialogs (Got it, Close, etc.)
+  const popupTextMatchers = ["stay here", "dismiss", "ok", "close", "got it", "okay, let's go"];
+  await page.evaluate((matchers) => {
+    const buttons = Array.from(document.querySelectorAll('button'));
+    for (const btn of buttons) {
+      const text = btn.innerText.trim().toLowerCase();
+      if (matchers.some(m => text === m || text.includes(m))) {
+        const rect = btn.getBoundingClientRect();
+        const style = window.getComputedStyle(btn);
+        if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
+          btn.click();
         }
       }
-    } catch (e) {
-      // Ignored
     }
+  }, popupTextMatchers).catch(() => {});
+
+  // Fallback for standard modal/dialog buttons
+  try {
+    const dialogBtn = await page.$('[class*="modal"] button, [role="dialog"] button');
+    if (dialogBtn) {
+      await dialogBtn.click().catch(() => {});
+    }
+  } catch (e) {
+    // Ignored
   }
 
   try {

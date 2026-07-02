@@ -120,6 +120,30 @@ export async function waitForStable(page, selector, {
       }
     }
 
+    // Check for "Continue generating" or "Keep writing" buttons (common in Grok, ChatGPT, etc.)
+    const clickedContinue = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      for (const btn of buttons) {
+        const text = btn.innerText.trim().toLowerCase();
+        if (text === 'continue generating' || text === 'continue' || text === 'keep writing' || btn.getAttribute('data-testid')?.includes('continue')) {
+          const rect = btn.getBoundingClientRect();
+          const style = window.getComputedStyle(btn);
+          if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
+            btn.click();
+            return true;
+          }
+        }
+      }
+      return false;
+    }).catch(() => false);
+
+    if (clickedContinue) {
+      console.log('  [STABLE] Detected "Continue generating" button. Clicked to resume generation...');
+      stableMs = 0; // Reset stability
+      await new Promise(r => setTimeout(r, 1500));
+      continue;
+    }
+
     const els = await page.$$(selector);
     if (!els.length) continue;
 

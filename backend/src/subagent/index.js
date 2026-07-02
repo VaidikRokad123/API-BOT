@@ -660,9 +660,18 @@ Return ONLY this JSON:
       }
     }
 
-    const agentReport = finishPayload
+    let agentReport = finishPayload
       ? (finishPayload.report || finishPayload.result || finishPayload.summary || finishPayload.answer || '')
       : '';
+
+    // Fallback: If no explicit report was produced by the finish tool, check the history for the last extract/read results.
+    if (!agentReport && history.length > 0) {
+      const lastExtract = [...history].reverse().find(h => (h.tool === 'extract' || h.tool === 'read') && h.result);
+      if (lastExtract) {
+        agentReport = lastExtract.result.replace(/^Extracted text:\s*/i, '');
+        logger.info('  ✓ Fallback: Extracted final report/answer from history.');
+      }
+    }
 
     const verdict = verdictWithFailureReason(await verifyGoal(page, task, aiPage, consoleBuffer, agentReport, { isApply: !!options.isApply }));
     logger.info({ verdict, agentReport: String(agentReport || '').slice(0, 1200) }, 'subagent_verdict');

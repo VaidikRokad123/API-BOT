@@ -493,11 +493,40 @@ async function focusAndType(page, el, value) {
     const box = await el.boundingBox?.().catch(() => null);
     if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   });
-  await page.keyboard.down('Control');
-  await page.keyboard.press('a');
-  await page.keyboard.up('Control');
-  await page.keyboard.press('Backspace');
-  await page.keyboard.type(String(value ?? ''), { delay: 1 });
+
+  const isContentEditable = await page.evaluate(element => element.isContentEditable || element.getAttribute('contenteditable') === 'true', el).catch(() => false);
+  const textVal = String(value ?? '');
+
+  if (textVal.length > 80) {
+    // Fast path: use execCommand('insertText') to simulate a paste action.
+    // This is instant and correctly triggers the internal state of rich-text frameworks (React, Lexical, ProseMirror).
+    await page.evaluate(() => {
+      document.execCommand('selectAll', false, null);
+    }).catch(() => {});
+    const success = await page.evaluate((val) => {
+      return document.execCommand('insertText', false, val);
+    }, textVal).catch(() => false);
+
+    if (!success) {
+      // Fallback to DOM injection if execCommand fails/is not supported on the target
+      await page.evaluate((element, val, isEditable) => {
+        if (isEditable) {
+          element.innerText = val;
+        } else {
+          element.value = val;
+        }
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      }, el, textVal, isContentEditable);
+    }
+  } else {
+    // Standard path for short texts: simulates human keyboard presses
+    await page.keyboard.down('Control');
+    await page.keyboard.press('a');
+    await page.keyboard.up('Control');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type(textVal, { delay: 1 });
+  }
 }
 
 async function nativeSelect(page, el, value) {
