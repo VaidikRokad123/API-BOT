@@ -10,7 +10,7 @@ You are preparing a job application. Research the company and role using the job
 JOB URL: ${jobUrl}
 
 JOB PAGE TEXT:
-${pageText.slice(0, 4000)}
+${pageText.slice(0, 12000)}
 
 CANDIDATE PROFILE SUMMARY:
 Name: ${profile.name}
