@@ -211,20 +211,24 @@ async function getAriaSnapshot(page) {
 
 export async function perceive(page, consoleBuffer = null) {
   const ariaSnapshot = await getAriaSnapshot(page);
-  const extracted = await page.evaluate(() => {
+  const hasSnapshot = !!ariaSnapshot;
+
+  const extracted = await page.evaluate((skipInjection) => {
     let maxRef = 0;
-    for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
-      const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > maxRef) maxRef = num;
+    if (!skipInjection) {
+      for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
+        const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxRef) maxRef = num;
+        }
       }
     }
     let refSeq = maxRef;
     const interestingSelector = [
       'input', 'textarea', 'select', 'button', 'a[href]', 'canvas',
       '[role]', '[contenteditable="true"]', '[tabindex]', '[onclick]',
-      'label[for]'
+      'label[for]', 'details', 'summary'
     ].join(',');
     const visible = el => {
       const rect = el.getBoundingClientRect();
@@ -336,9 +340,15 @@ export async function perceive(page, consoleBuffer = null) {
     const elements = [];
     for (const el of Array.from(document.querySelectorAll(interestingSelector))) {
       if (!visible(el)) continue;
-      if (!el.dataset.gptAuthRef) {
-        refSeq += 1;
-        el.dataset.gptAuthRef = `gpt-ref-${refSeq}`;
+      let ref = '';
+      let selector = '';
+      if (!skipInjection) {
+        if (!el.dataset.gptAuthRef) {
+          refSeq += 1;
+          el.dataset.gptAuthRef = `gpt-ref-${refSeq}`;
+        }
+        ref = el.dataset.gptAuthRef;
+        selector = cssSelectorFor(ref);
       }
       const tag = el.tagName.toLowerCase();
       const role = roleFor(el);
@@ -359,8 +369,8 @@ export async function perceive(page, consoleBuffer = null) {
         role,
         name,
         context,
-        ref: el.dataset.gptAuthRef,
-        selector: cssSelectorFor(el.dataset.gptAuthRef),
+        ref,
+        selector,
         tag,
         type,
         required: !!el.required || el.getAttribute('aria-required') === 'true',
@@ -379,14 +389,14 @@ export async function perceive(page, consoleBuffer = null) {
       text: text(document.body?.innerText || '').slice(0, 16000),
       elements
     };
-  }).catch(() => ({ text: '', elements: [] }));
+  }, hasSnapshot).catch(() => ({ text: '', elements: [] }));
 
   const elementsWithHash = extracted.elements.map(el => ({
     ...el,
     elementHash: computeElementHash(el)
   }));
 
-  const elementList = renderElementList(elementsWithHash);
+  const elementList = hasSnapshot ? '' : renderElementList(elementsWithHash);
   return {
     url: pageUrl(page),
     title: await pageTitle(page),
@@ -438,6 +448,14 @@ function renderElementList(elements = []) {
 }
 
 async function findActionElement(page, action) {
+  // If the action specifies an accessibility ref (e.g. e5, e12) and the engine
+  // supports native Playwright locator selection, resolve it directly using aria-ref.
+  if (action.ref && /^e\d+$/.test(action.ref) && typeof page.locator === 'function') {
+    const loc = page.locator(`aria-ref=${action.ref}`);
+    const el = await loc.elementHandle().catch(() => null);
+    if (el) return el;
+  }
+
   const selector = action.selector || (action.ref ? `[data-gpt-auth-ref="${String(action.ref).replace(/"/g, '\\"')}"]` : null);
   if (!selector) return null;
   if (selector.includes(' >>> ')) {

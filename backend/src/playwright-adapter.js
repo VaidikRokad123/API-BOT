@@ -186,6 +186,10 @@ export class PlaywrightPage {
     catch { return null; }
   }
 
+  locator(selector) {
+    return this.page.locator(selector);
+  }
+
   async setUserAgent() { /* set at context creation in Playwright */ }
   async setViewport(vp) { return this.page.setViewportSize({ width: vp.width, height: vp.height }); }
 

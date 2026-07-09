@@ -29,6 +29,11 @@ Everything runs from a single interactive console (`node agent.js`). The browser
 - [How `/council` Works](#how-council-works)
 - [How `/apply` Works](#how-apply-works)
 - [The Browser Subagent (`/browser`)](#the-browser-subagent-browser)
+- [Bowser Batch Execution Mode (`/batch`)](#bowser-batch-execution-mode-batch)
+- [ScrapeGraphAI Pipeline Port](#scrapegraphai-pipeline-port)
+- [Step-Level Verification & Console Harvesting](#step-level-verification--console-harvesting)
+- [Companion YAML Workflows](#companion-yaml-workflows)
+- [Advanced Customizations](#advanced-customizations)
 - [Architecture](#architecture)
 - [Permissions System](#permissions-system)
 - [Application Ledger](#application-ledger)
@@ -109,6 +114,7 @@ Run `npm run agent` (or `node backend/agent.js`) and you get an interactive prom
 | `/ask <question>` | One-shot question — prints the answer and returns to the menu |
 | `/council <question>` | Ask **all** logged-in providers at once, then merge their answers |
 | `/apply <url> [--hidden]` | AI-driven job application (interactive engine selection) |
+| `/batch <file.yaml> [--hidden]` | Run a batch sequence of browser automation tasks defined in a YAML file |
 | `/browser` | Interactively choose/switch the default browser engine |
 | `/browser <engine>` | Directly switch engine (e.g. `real-chrome`, `real-brave`, `real-opera`, `playwright`) |
 | `/browser <task> [--hidden] [--engine=...] [--provider=...]` | Run a natural-language browser automation task via the Subagent |
@@ -552,6 +558,84 @@ data/runs/
         ├── steps.json         # Structured step data with screenshots
         └── action-01-001.png  # Full-page action screenshots
 ```
+
+---
+
+## Bowser Batch Execution Mode (`/batch`)
+
+The `/batch` command enables execution of declarative sequential user-stories and workflow scripts defined in YAML format. It provides automated batch orchestration for user tasks inside our Playwright/Subagent loop.
+
+### Command Syntax
+```powershell
+# Run a batch workflow file
+> /batch workflows/test_workflow.yaml
+
+# Run a batch workflow in headless mode
+> /batch workflows/test_workflow.yaml --hidden
+```
+
+### Workflow YAML Schema Example
+```yaml
+name: "Search and Report Flow"
+steps:
+  - name: "Navigate to Search Engine"
+    action: "navigate"
+    url: "https://www.perplexity.ai"
+  - name: "Submit Research Query"
+    action: "fill"
+    selector: "textarea"
+    value: "Explain HR trends in 2026"
+  - name: "Wait for results"
+    action: "wait"
+    ms: 5000
+```
+- **Sequential Isolation**: Steps are executed sequentially in a single context sandbox, maintaining clean session state without cross-leakage.
+- **Pre-flight Checks**: Runs a direct database connection check before launching any browsers.
+
+---
+
+## ScrapeGraphAI Pipeline Port
+
+We ported ScrapeGraphAI's pipelines directly to our Javascript driver to minimize token usage and enhance parsing efficiency:
+
+1. **HTML Minifier**: Automatically strips off structural clutter (e.g., `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`, `<svg>`, and advertisement containers) from the DOM before sending text context to the LLM.
+2. **JSON-LD Schema Extractor**: Pulls structured JSON-LD schemas from metadata blocks. This is used to read structured data (like salary, title, and location) instantly without incurring AI inference costs.
+3. **Plan Pre-pass**: Initiates a layout-analysis phase that maps out a structured execution plan before running actions.
+4. **4-Tier retry loops**: Incorporates a progressive 4-layered retry strategy (1. Reload page, 2. Clear input state, 3. Re-evaluate selector strategies, 4. Browser profile fallback) on step failures.
+
+---
+
+## Step-Level Verification & Console Harvesting
+
+To prevent automation errors from cascading, each subagent action is checked immediately:
+
+1. **Step Verdicts**: After each action, the AI engine scans the new page state and assigns a verdict of `PASS`, `FAIL`, or `SKIPPED`.
+2. **Console Harvesting**: If a step is graded as `FAIL`, the driver harvests browser console errors and warning logs, saving them in the `steps.json` trace logs to assist debugging.
+
+---
+
+## Companion YAML Workflows
+
+Upon successfully completing a task, the agent extracts the page's functional quirks and action patterns:
+
+1. **Strategy Generation**: Functional strategy summaries are saved at `workflows/<hostname>.yaml`.
+2. **Contextual Bootstrapping**: On subsequent runs to the same hostname, the agent imports this companion file as context to skip trial-and-error runs.
+
+---
+
+## Advanced Customizations
+
+### Chrome-Only Auto-Profile Launching
+Configure Chrome profile folders in your environment file. When launching `real-chrome`, the launcher automatically loads the specified directory:
+```env
+CHROME_PROFILE=Profile 2
+```
+
+### Instant Typing Speed
+For long texts (like pasting summaries or Perplexity output), the engine bypasses standard key-by-key typing:
+- Uses `document.execCommand('insertText')` to copy-paste the text instantly.
+- Keeps editors like React, Vue, Lexical, and ProseMirror properly updated with the input state.
+- Reduces typing wait times from minutes to under 1 millisecond.
 
 ---
 
