@@ -58,3 +58,62 @@ test('native confirm dialog auto-accepted does not block click', async ({ page }
   await act(page, { type: 'click', selector: '#confirm-btn' });
   await expect(page.locator('#status')).toHaveText('confirmed');
 });
+
+// ─── Regression tests for silent fill/type failures ─────────────────────────
+
+test('fill on plain textarea verifies read-back matches', async ({ page }) => {
+  await page.goto(fixtureUrl('plain-textarea.html'));
+  await act(page, { type: 'fill', selector: '#message', value: 'Hello, World!' });
+  await expect(page.locator('#message')).toHaveValue('Hello, World!');
+  // Also verify the char-count listener saw the input event
+  await expect(page.locator('#char-count')).toHaveText('13');
+});
+
+test('fill on contenteditable div verifies read-back matches', async ({ page }) => {
+  await page.goto(fixtureUrl('contenteditable-composer.html'));
+  const obs = await perceive(page);
+  const composerEl = obs.elements.find(e => e.name === 'Message input' || e.ref);
+  expect(composerEl).toBeTruthy();
+  await act(page, { type: 'fill', selector: '#composer', value: 'Test message for rich editor' });
+  // Verify text actually appears in the contenteditable div
+  const text = await page.locator('#composer').innerText();
+  expect(text).toContain('Test message for rich editor');
+  // Verify the output mirror got the event
+  await expect(page.locator('#output')).toHaveText('Test message for rich editor');
+});
+
+test('fill on React-controlled input with debounced re-render still succeeds', async ({ page }) => {
+  await page.goto(fixtureUrl('react-controlled-input.html'));
+  await act(page, { type: 'fill', selector: '#controlled', value: 'React value' });
+  // Wait for the debounced re-render (50ms in the fixture)
+  await page.waitForTimeout(200);
+  // The display should show the controlled value
+  await expect(page.locator('#display')).toHaveText('React value');
+  // The input itself should still have the value
+  await expect(page.locator('#controlled')).toHaveValue('React value');
+});
+
+test('ref re-injection after simulated DOM re-render finds element', async ({ page }) => {
+  await page.goto(fixtureUrl('plain-textarea.html'));
+  // First perceive to inject refs
+  const obs1 = await perceive(page);
+  const messageEl = obs1.elements.find(e => e.tag === 'textarea');
+  expect(messageEl).toBeTruthy();
+  expect(messageEl.ref).toMatch(/^gpt-ref-\d+$/);
+
+  // Simulate React stripping the injected data attribute
+  await page.evaluate(() => {
+    const el = document.querySelector('#message');
+    if (el) delete el.dataset.gptAuthRef;
+  });
+
+  // Verify the attribute is actually gone
+  const hasAttr = await page.evaluate(() => {
+    return !!document.querySelector('#message').dataset.gptAuthRef;
+  });
+  expect(hasAttr).toBe(false);
+
+  // Now act() should re-inject refs and still find the element
+  await act(page, { type: 'fill', selector: '#message', value: 'After re-inject' });
+  await expect(page.locator('#message')).toHaveValue('After re-inject');
+});

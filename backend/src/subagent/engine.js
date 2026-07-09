@@ -209,19 +209,31 @@ async function getAriaSnapshot(page) {
   return null;
 }
 
-export async function perceive(page, consoleBuffer = null) {
-  const ariaSnapshot = await getAriaSnapshot(page);
-  const hasSnapshot = !!ariaSnapshot;
+/**
+ * Strip Playwright aria-ref tokens (e.g. [ref=e5], [ref=e40]) from an ariaSnapshot
+ * string so the LLM is never presented with a competing ref numbering scheme.
+ */
+function sanitizeAriaSnapshotRefs(snapshot) {
+  if (!snapshot) return snapshot;
+  // Remove [ref=eN] patterns and standalone eN-style refs that look like identifiers
+  return snapshot.replace(/\[ref=e\d+\]/g, '').replace(/\bref=e\d+\b/g, '');
+}
 
-  const extracted = await page.evaluate((skipInjection) => {
+export async function perceive(page, consoleBuffer = null) {
+  const rawAriaSnapshot = await getAriaSnapshot(page);
+  const ariaSnapshot = sanitizeAriaSnapshotRefs(rawAriaSnapshot);
+
+  // Always inject gpt-ref attributes regardless of ariaSnapshot availability.
+  // Previously, refs were skipped when ariaSnapshot was present, creating a
+  // dual-addressing-scheme bug where the LLM could reference eN tokens that
+  // had no corresponding DOM attribute, causing silent element_not_found.
+  const extracted = await page.evaluate(() => {
     let maxRef = 0;
-    if (!skipInjection) {
-      for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
-        const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
-        if (match) {
-          const num = parseInt(match[1], 10);
-          if (num > maxRef) maxRef = num;
-        }
+    for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
+      const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxRef) maxRef = num;
       }
     }
     let refSeq = maxRef;
@@ -342,14 +354,12 @@ export async function perceive(page, consoleBuffer = null) {
       if (!visible(el)) continue;
       let ref = '';
       let selector = '';
-      if (!skipInjection) {
-        if (!el.dataset.gptAuthRef) {
-          refSeq += 1;
-          el.dataset.gptAuthRef = `gpt-ref-${refSeq}`;
-        }
-        ref = el.dataset.gptAuthRef;
-        selector = cssSelectorFor(ref);
+      if (!el.dataset.gptAuthRef) {
+        refSeq += 1;
+        el.dataset.gptAuthRef = `gpt-ref-${refSeq}`;
       }
+      ref = el.dataset.gptAuthRef;
+      selector = cssSelectorFor(ref);
       const tag = el.tagName.toLowerCase();
       const role = roleFor(el);
       const type = (el.getAttribute('type') || tag).toLowerCase();
@@ -389,14 +399,15 @@ export async function perceive(page, consoleBuffer = null) {
       text: text(document.body?.innerText || '').slice(0, 16000),
       elements
     };
-  }, hasSnapshot).catch(() => ({ text: '', elements: [] }));
+  }).catch(() => ({ text: '', elements: [] }));
 
   const elementsWithHash = extracted.elements.map(el => ({
     ...el,
     elementHash: computeElementHash(el)
   }));
 
-  const elementList = hasSnapshot ? '' : renderElementList(elementsWithHash);
+  // Always produce the element list so the LLM always has gpt-ref-N refs available
+  const elementList = renderElementList(elementsWithHash);
   return {
     url: pageUrl(page),
     title: await pageTitle(page),
@@ -448,14 +459,9 @@ function renderElementList(elements = []) {
 }
 
 async function findActionElement(page, action) {
-  // If the action specifies an accessibility ref (e.g. e5, e12) and the engine
-  // supports native Playwright locator selection, resolve it directly using aria-ref.
-  if (action.ref && /^e\d+$/.test(action.ref) && typeof page.locator === 'function') {
-    const loc = page.locator(`aria-ref=${action.ref}`);
-    const el = await loc.elementHandle().catch(() => null);
-    if (el) return el;
-  }
-
+  // Resolve exclusively via the gpt-ref data attribute system.
+  // The previous aria-ref=eN path has been removed to eliminate the
+  // dual-addressing-scheme confusion that caused silent no-ops.
   const selector = action.selector || (action.ref ? `[data-gpt-auth-ref="${String(action.ref).replace(/"/g, '\\"')}"]` : null);
   if (!selector) return null;
   if (selector.includes(' >>> ')) {
@@ -685,6 +691,76 @@ export async function waitForStable(page, { quietMs = 500, timeoutMs = 5000 } = 
   }), { quiet: quietMs, cap: timeoutMs }).catch(() => new Promise(resolve => setTimeout(resolve, quietMs)));
 }
 
+/**
+ * Short MutationObserver-based DOM settle wait, specifically for post-type
+ * verification. Shorter than waitForStable to avoid unnecessary delays, but
+ * long enough for React/framework re-renders to flush after text input.
+ */
+export async function waitForDomSettle(page, { quietMs = 200, timeoutMs = 2000 } = {}) {
+  return waitForStable(page, { quietMs, timeoutMs });
+}
+
+/**
+ * Re-inject data-gpt-auth-ref attributes on all visible interactive elements.
+ * Call this immediately before executing an action to ensure refs survive
+ * React/framework re-renders that may have stripped injected DOM attributes
+ * during the multi-second AI reasoning gap.
+ */
+export async function reinjectRefs(page) {
+  return page.evaluate(() => {
+    let maxRef = 0;
+    for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
+      const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxRef) maxRef = num;
+      }
+    }
+    let refSeq = maxRef;
+    const interestingSelector = [
+      'input', 'textarea', 'select', 'button', 'a[href]', 'canvas',
+      '[role]', '[contenteditable="true"]', '[tabindex]', '[onclick]',
+      'label[for]', 'details', 'summary'
+    ].join(',');
+    const visible = el => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
+        style.visibility !== 'hidden' && style.opacity !== '0';
+    };
+    let injected = 0;
+    for (const el of Array.from(document.querySelectorAll(interestingSelector))) {
+      if (!visible(el)) continue;
+      if (!el.dataset.gptAuthRef) {
+        refSeq += 1;
+        el.dataset.gptAuthRef = `gpt-ref-${refSeq}`;
+        injected++;
+      }
+    }
+    return injected;
+  }).catch(() => 0);
+}
+
+/**
+ * Read back the actual value of an element after typing, handling both
+ * standard inputs (input.value) and contenteditable/rich-text editors.
+ */
+async function readBackValue(page, el) {
+  return page.evaluate(element => {
+    if (!element) return '';
+    // Standard input/textarea
+    if (element.value !== undefined && element.value !== '') {
+      return element.value;
+    }
+    // Contenteditable / rich-text (Perplexity, ChatGPT, Gemini composers)
+    if (element.isContentEditable || element.getAttribute('contenteditable') === 'true') {
+      return (element.innerText || element.textContent || '').trim();
+    }
+    // Fallback: try value then textContent
+    return element.value || (element.textContent || '').trim();
+  }, el).catch(() => '');
+}
+
 function resolveProfileValue(value, profile = {}) {
   if (isCredentialToken(value)) {
     return resolveFillValue(value, profile).value;
@@ -697,8 +773,27 @@ export async function act(page, rawAction, ctx = {}) {
 
   const startedAt = new Date().toISOString();
   let result = '';
-  const el = await findActionElement(page, action);
-  if (!el) throw new Error(`element_not_found: ${action.selector || action.ref}`);
+
+  // Re-inject refs immediately before resolving the target element.
+  // React/framework re-renders during the multi-second AI reasoning gap
+  // can strip injected data-gpt-auth-ref attributes, causing silent no-ops.
+  await reinjectRefs(page);
+
+  let el = await findActionElement(page, action);
+
+  // If target not found, attempt one re-inject + retry cycle with a clear warning
+  if (!el) {
+    const refLabel = action.selector || action.ref;
+    console.warn(`[WARN] ref target not found: ${refLabel} — re-injecting refs and retrying...`);
+    ctx.logger?.warn?.({ ref: refLabel }, 'ref_target_not_found_retrying');
+    await reinjectRefs(page);
+    el = await findActionElement(page, action);
+    if (!el) {
+      throw new Error(`element_not_found: ${refLabel} (not found even after ref re-injection)`);
+    }
+    console.warn(`[WARN] ref target recovered after re-injection: ${refLabel}`);
+  }
+
   const info = await elementInfo(page, el);
   if (info.disabled) throw new Error(`form_incompatible: disabled element ${action.selector || action.ref}`);
   if (action.type === 'click' && !action.description) action.description = info.text;
@@ -715,6 +810,61 @@ export async function act(page, rawAction, ctx = {}) {
         result = 'Checked choice while handling fill action';
       } else {
         await focusAndType(page, el, value);
+
+        // Read-back verification: wait for DOM to settle, then verify text landed
+        await waitForDomSettle(page);
+        const textVal = String(value ?? '');
+        const actual = await readBackValue(page, el);
+        const normalise = s => String(s || '').replace(/\s+/g, ' ').trim();
+
+        if (normalise(actual).length < normalise(textVal).length * 0.5 && textVal.length > 0) {
+          // Read-back mismatch — retry with alternate typing method
+          console.warn(`[WARN] fill read-back mismatch: expected ${textVal.length} chars, got ${actual.length} — retrying with alternate method`);
+          ctx.logger?.warn?.({ expected: textVal.length, got: actual.length }, 'fill_readback_mismatch_retrying');
+
+          const isContentEditable = await page.evaluate(
+            element => element.isContentEditable || element.getAttribute('contenteditable') === 'true', el
+          ).catch(() => false);
+
+          // If focusAndType used keyboard.type (short text), retry with execCommand
+          // If it used execCommand (long text), retry with keyboard.type
+          if (textVal.length > 80) {
+            // Original used execCommand, retry with keyboard.type
+            await el.click().catch(() => {});
+            await page.keyboard.down('Control');
+            await page.keyboard.press('a');
+            await page.keyboard.up('Control');
+            await page.keyboard.press('Backspace');
+            await page.keyboard.type(textVal, { delay: 1 });
+          } else {
+            // Original used keyboard.type, retry with execCommand
+            await el.click().catch(() => {});
+            await page.evaluate(() => document.execCommand('selectAll', false, null)).catch(() => {});
+            const success = await page.evaluate(
+              val => document.execCommand('insertText', false, val), textVal
+            ).catch(() => false);
+            if (!success) {
+              // Last resort: direct DOM injection
+              await page.evaluate((element, val, isEditable) => {
+                if (isEditable) element.innerText = val;
+                else element.value = val;
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+                element.dispatchEvent(new Event('change', { bubbles: true }));
+              }, el, textVal, isContentEditable);
+            }
+          }
+
+          // Second read-back after retry
+          await waitForDomSettle(page);
+          const retryActual = await readBackValue(page, el);
+          if (normalise(retryActual).length < normalise(textVal).length * 0.5 && textVal.length > 0) {
+            const msg = `fill verification failed: expected ${textVal.length} chars, got ${retryActual.length} after retry`;
+            console.warn(`[WARN] ${msg}`);
+            ctx.logger?.warn?.({ expected: textVal.length, got: retryActual.length }, 'fill_readback_failed_after_retry');
+            throw new Error(`fill_verification_failed: ${msg}`);
+          }
+        }
+
         result = resolved.credentialFilled && resolved.isSecret
           ? `[credential:${resolved.slot}.${resolved.field} filled]`
           : `Typed ${String(value ?? '').length} character(s)`;

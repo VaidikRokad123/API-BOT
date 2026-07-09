@@ -5,6 +5,7 @@ export const config = {
   name:          'DeepSeek',
   url:           'https://chat.deepseek.com',
   readySelector: 'textarea#chat-input, textarea',
+  maxInputLength: 25000,
 };
 
 const RESPONSE = '.ds-markdown';
@@ -12,7 +13,7 @@ const RESPONSE = '.ds-markdown';
 export async function sendMessage(page, text) {
   const before = (await page.$$(RESPONSE)).length;
 
-  await insertPrompt(page, 'textarea#chat-input, textarea', text);
+  await insertPrompt(page, 'textarea#chat-input, textarea', text, { maxLength: config.maxInputLength });
   
   // Find the submit/send button next to the input area
   const sendBtn = await page.evaluateHandle(() => {

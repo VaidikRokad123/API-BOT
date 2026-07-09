@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>React-Controlled Input Fixture</title>
+</head>
+<body>
+  <label for="controlled">Search</label>
+  <input id="controlled" type="text" value="" autocomplete="off" />
+  <p id="display"></p>
+  <p id="render-count">0</p>
+
+  <script>
+    // Simulates a React-controlled input that clears/rewrites its value
+    // on a debounced re-render. This is the exact failure mode where
+    // keyboard.type works but the framework overwrites the value on the
+    // next reconciliation tick.
+    const input = document.getElementById('controlled');
+    const display = document.getElementById('display');
+    const renderCount = document.getElementById('render-count');
+
+    let controlledValue = '';
+    let renders = 0;
+    let debounceTimer = null;
+
+    // Simulate React's onChange -> setState -> re-render cycle
+    input.addEventListener('input', (e) => {
+      const rawValue = e.target.value;
+      controlledValue = rawValue;
+
+      // Debounced "re-render" that rewrites the input value
+      // (simulates React reconciliation clearing and resetting the value)
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        renders++;
+        renderCount.textContent = renders;
+
+        // This is what React does: it sets input.value = controlledState
+        // If the typing method didn't trigger the synthetic event properly,
+        // controlledValue might be stale/empty and this clears what was typed.
+        input.value = controlledValue;
+        display.textContent = controlledValue;
+      }, 50);
+    });
+
+    // Also simulate React's property override pattern
+    // React overrides the value setter to track changes
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype, 'value'
+    ).set;
+
+    Object.defineProperty(input, '_reactValue', {
+      get() { return controlledValue; },
+      set(v) {
+        controlledValue = v;
+        nativeInputValueSetter.call(input, v);
+        display.textContent = v;
+      }
+    });
+  </script>
+</body>
+</html>

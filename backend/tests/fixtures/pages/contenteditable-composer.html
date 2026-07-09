@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><title>Contenteditable Composer Fixture</title></head>
+<body>
+  <label>Chat Composer</label>
+  <div id="composer" contenteditable="true"
+       role="textbox" aria-label="Message input"
+       style="border: 1px solid #ccc; padding: 8px; min-height: 40px; width: 400px;">
+  </div>
+  <p id="output"></p>
+  <script>
+    const composer = document.getElementById('composer');
+    const output = document.getElementById('output');
+    composer.addEventListener('input', () => {
+      output.textContent = composer.innerText.trim();
+    });
+  </script>
+</body>
+</html>

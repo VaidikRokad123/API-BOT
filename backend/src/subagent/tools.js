@@ -1,6 +1,6 @@
 import { redactCredentialArgs } from '../credentials.js';
 import { attributeSelector, idFromLegacySelector } from './selector.js';
-import { perceive, act as executeSubagentAction, enforceActionPermission, waitForStable } from './engine.js';
+import { perceive, act as executeSubagentAction, enforceActionPermission, waitForStable, reinjectRefs } from './engine.js';
 import { handleOAuthPages } from './oauth.js';
 
 async function findActionElement(page, selector) {
@@ -291,6 +291,9 @@ export const TOOL_REGISTRY = {
       if (!args.actions || !Array.isArray(args.actions)) {
         return 'No actions provided for fill_form';
       }
+      // Re-inject refs before batch form fill to guard against React re-renders
+      // that may have stripped data-gpt-auth-ref during the AI reasoning gap.
+      await reinjectRefs(page);
       for (const formAction of args.actions) {
         await executeSubagentAction(page, formAction, ctx);
       }

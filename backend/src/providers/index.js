@@ -13,11 +13,73 @@ export function getProvider(key) {
   return PROVIDERS[key];
 }
 
+// MutationObserver-based DOM settle wait. Waits until DOM mutations stop
+// for `quietMs` or until `timeoutMs` cap is reached. Prevents false read-back
+// results from React/framework re-renders that briefly clear or rewrite text.
+export async function waitForDomSettle(page, { quietMs = 200, timeoutMs = 2000 } = {}) {
+  return page.evaluate(({ quiet, cap }) => new Promise(resolve => {
+    let done = false;
+    let timer = null;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      observer.disconnect();
+      resolve(true);
+    };
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(finish, quiet);
+    };
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      characterData: true
+    });
+    schedule();
+    setTimeout(finish, cap);
+  }), { quiet: quietMs, cap: timeoutMs }).catch(() => new Promise(resolve => setTimeout(resolve, quietMs)));
+}
+
+// Smart prompt truncation for web UI input limits. Preserves the beginning
+// (task description, tools, instructions) and the end (format spec, guidelines)
+// of the prompt, cutting middle content (page text, element lists, ariaSnapshot).
+function truncatePrompt(text, maxLength) {
+  if (!maxLength || text.length <= maxLength) return text;
+
+  // Keep ~60% from the start (task, tools, profile, instructions) and ~20% from the end (format spec)
+  const headRatio = 0.60;
+  const tailRatio = 0.20;
+  const marker = '\n\n[... CONTENT TRUNCATED — prompt exceeded input limit, middle sections removed ...]\n\n';
+
+  const headLen = Math.floor((maxLength - marker.length) * headRatio);
+  const tailLen = Math.floor((maxLength - marker.length) * tailRatio);
+
+  if (headLen < 200 || tailLen < 100) {
+    // If the limit is extremely tight, just hard truncate
+    return text.slice(0, maxLength - 50) + '\n[TRUNCATED]';
+  }
+
+  const head = text.slice(0, headLen);
+  const tail = text.slice(text.length - tailLen);
+
+  console.warn(`[WARN] Prompt truncated: ${text.length} → ${headLen + marker.length + tailLen} chars (limit: ${maxLength})`);
+  return head + marker + tail;
+}
+
 // Reliably insert a full prompt into a focused input (textarea or contenteditable).
 // Uses execCommand('insertText') — atomic and registered by React/ProseMirror as
 // real user input. Verifies the text landed; falls back to keyboard.type with
 // newlines neutralised (so a stray \n never triggers premature submit).
-export async function insertPrompt(page, selector, text) {
+//
+// Options:
+//   maxLength — truncate prompt before insertion if it exceeds this char count.
+//               Each provider passes its own limit via config.maxInputLength.
+export async function insertPrompt(page, selector, text, { maxLength = 20000 } = {}) {
+  const truncated = truncatePrompt(text, maxLength);
+
   const el = await page.$(selector);
   if (!el) throw new Error(`Input not found: ${selector}`);
   await el.click();
@@ -26,8 +88,11 @@ export async function insertPrompt(page, selector, text) {
   await page.keyboard.down('Control');
   await page.keyboard.press('a');
   await page.keyboard.up('Control');
-  await page.evaluate((t) => document.execCommand('insertText', false, t), text);
-  await new Promise(r => setTimeout(r, 500));
+  await page.evaluate((t) => document.execCommand('insertText', false, t), truncated);
+
+  // Wait for DOM to settle (MutationObserver-based, not fixed timeout)
+  // to let React/framework re-renders flush before read-back verification
+  await waitForDomSettle(page, { quietMs: 250, timeoutMs: 3000 });
 
   // Verify the prompt actually landed
   const got = await page.evaluate(s => {
@@ -36,15 +101,15 @@ export async function insertPrompt(page, selector, text) {
     return (e.value !== undefined && e.value !== '') ? e.value : (e.innerText || '');
   }, selector).catch(() => '');
 
-  if (got.replace(/\s/g, '').length < text.replace(/\s/g, '').length * 0.5) {
+  if (got.replace(/\s/g, '').length < truncated.replace(/\s/g, '').length * 0.5) {
     // Fallback: type with newlines turned into spaces to avoid auto-submit
     await el.click();
     await page.keyboard.down('Control');
     await page.keyboard.press('a');
     await page.keyboard.up('Control');
     await page.keyboard.press('Backspace');
-    await page.keyboard.type(text.replace(/\r?\n/g, ' '));
-    await new Promise(r => setTimeout(r, 400));
+    await page.keyboard.type(truncated.replace(/\r?\n/g, ' '));
+    await waitForDomSettle(page, { quietMs: 250, timeoutMs: 3000 });
   }
 }
 

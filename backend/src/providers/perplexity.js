@@ -5,6 +5,7 @@ export const config = {
   name:          'Perplexity',
   url:           'https://www.perplexity.ai',
   readySelector: 'textarea, div[contenteditable="true"]',
+  maxInputLength: 16000,
 };
 
 const RESPONSE = '.prose';
@@ -12,7 +13,7 @@ const RESPONSE = '.prose';
 export async function sendMessage(page, text) {
   const before = (await page.$$(RESPONSE)).length;
 
-  await insertPrompt(page, 'textarea, div[contenteditable="true"]', text);
+  await insertPrompt(page, 'textarea, div[contenteditable="true"]', text, { maxLength: config.maxInputLength });
 
   // Find the submit/send button in the input area
   const sendBtn = await page.evaluateHandle(() => {

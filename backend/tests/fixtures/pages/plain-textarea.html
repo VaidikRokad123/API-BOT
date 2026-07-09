@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head><title>Plain Textarea Fixture</title></head>
+<body>
+  <label for="message">Message</label>
+  <textarea id="message" rows="4" cols="40"></textarea>
+  <p id="char-count">0</p>
+  <script>
+    const ta = document.getElementById('message');
+    const cc = document.getElementById('char-count');
+    ta.addEventListener('input', () => { cc.textContent = ta.value.length; });
+  </script>
+</body>
+</html>

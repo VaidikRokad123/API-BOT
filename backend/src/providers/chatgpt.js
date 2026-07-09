@@ -5,6 +5,7 @@ export const config = {
   name:          'ChatGPT',
   url:           'https://chatgpt.com',
   readySelector: '#prompt-textarea',
+  maxInputLength: 25000,
 };
 
 const RESPONSE = '[data-message-author-role="assistant"]';
@@ -50,7 +51,7 @@ export async function sendMessage(page, text) {
   }
 
   try {
-    await insertPrompt(page, '#prompt-textarea', text);
+    await insertPrompt(page, '#prompt-textarea', text, { maxLength: config.maxInputLength });
   } catch (e) {
     throw new Error(`Failed to type prompt into ChatGPT. Error: ${e.message}`);
   }

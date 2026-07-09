@@ -40,7 +40,7 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
     : '';
 
   const ariaBlock = obs.ariaSnapshot
-    ? `\nACCESSIBILITY TREE (authoritative when no INTERACTIVE ELEMENTS above — use [ref=eN] values like e1, e5, etc.):\n${obs.ariaSnapshot.slice(0, 6000)}\n`
+    ? `\nACCESSIBILITY TREE (supplementary context only — do NOT use any ref-like identifiers from this section; always use gpt-ref-N from INTERACTIVE ELEMENTS above):\n${obs.ariaSnapshot.slice(0, 6000)}\n`
     : '';
 
   const fieldsBlock = formatActionableFields(obs.fields || []);
@@ -90,7 +90,7 @@ export function buildSubagentPrompt(task, obs, history = [], profile = null, res
 
     guidelinesBlock = `
 GUIDELINES FOR FORM FILLING:
-1. Identify interactive controls. If ACCESSIBILITY TREE is present, use the [ref=eN] identifiers (e.g., e1, e5) from it. Otherwise, use the ref copied exactly from the INTERACTIVE ELEMENTS list. NEVER invent refs or selectors.
+1. Identify interactive controls. Use the gpt-ref-N identifiers copied EXACTLY from the INTERACTIVE ELEMENTS list. NEVER invent refs or selectors. Do NOT use any identifier from the ACCESSIBILITY TREE section.
 2. Native HTML <select> → use select tool with optionKind "native_select" and value = exact option text from the list.
 3. ARIA combobox/listbox/custom dropdown (dropdown=custom_combobox) → use select tool with optionKind "custom_combobox". Do NOT use native_select for these.
 4. Use fill_form to batch all visible empty fields before clicking Next/Submit.
@@ -102,7 +102,7 @@ GUIDELINES FOR FORM FILLING:
     guidelinesBlock = `
 GUIDELINES:
 1. Return exactly ONE tool call as raw JSON.
-2. If ACCESSIBILITY TREE is present, use the [ref=eN] identifiers (e.g., e1, e5) from it. Otherwise, use the ref from INTERACTIVE ELEMENTS. Never invent refs or selectors.
+2. Use the gpt-ref-N identifiers from INTERACTIVE ELEMENTS. Never invent refs or selectors. Do NOT use any identifier from the ACCESSIBILITY TREE section.
 3. Native <select> (dropdown=native_select) vs ARIA custom combobox (dropdown=custom_combobox) require different select optionKind.
 4. OAuth/login → handle_login immediately.
 5. Read page Text before clicking when task is extract/list/summarize.
@@ -138,6 +138,6 @@ ${ariaBlock}
 ${consoleBlock}
 FORMAT (raw JSON only):
 {"reasoning":"...","tool":"...","args":{...},"status":"continue|done|blocked"}
-Use args.ref (preferred) or args.selector ONLY when copied from the ACCESSIBILITY TREE or INTERACTIVE ELEMENTS.
+Use args.ref (preferred) or args.selector ONLY when copied from the INTERACTIVE ELEMENTS list. Use gpt-ref-N values only.
 `;
 }
