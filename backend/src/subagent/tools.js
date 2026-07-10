@@ -1,6 +1,6 @@
 import { redactCredentialArgs } from '../credentials.js';
 import { attributeSelector, idFromLegacySelector } from './selector.js';
-import { perceive, act as executeSubagentAction, enforceActionPermission, waitForStable, reinjectRefs } from './engine.js';
+import { perceive, act as executeSubagentAction, enforceActionPermission, waitForStable, reinjectRefs, waitForPageReady } from './engine.js';
 import { handleOAuthPages } from './oauth.js';
 
 async function findActionElement(page, selector) {
@@ -36,7 +36,7 @@ export const TOOL_REGISTRY = {
     params: { url: 'string' },
     run: async (page, args) => {
       await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await waitForStable(page);
+      await waitForPageReady(page);
       return `Navigated to ${args.url}`;
     }
   },

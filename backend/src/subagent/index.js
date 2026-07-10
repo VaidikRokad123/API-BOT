@@ -16,7 +16,7 @@ import { researchJob } from '../apply/research.js';
 import { verdictWithFailureReason } from '../apply/failure-taxonomy.js';
 import { scrapeJobPage } from '../apply/scraper.js';
 import { getCorrectionPrompt } from './ai-json.js';
-import { validateAiAction } from './engine.js';
+import { validateAiAction, waitForPageReady } from './engine.js';
 import { createSubagentFsm } from './fsm.js';
 import { createRunLogger } from './logger.js';
 import { loadDomainSkill, saveDomainSkill, prepareDomainSkillForReplay, attachElementHashToHistoryEntry } from './domain-skills.js';
@@ -324,7 +324,7 @@ export async function runBrowserSubagent(task, options = {}) {
     if (options.jobUrl) {
       logger.info({ url: options.jobUrl }, 'navigate_initial_job_url');
       await page.goto(options.jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await new Promise(r => setTimeout(r, 3000));
+      await waitForPageReady(page);
 
       const initialPageText = await page.evaluate(() => document.body.innerText).catch(() => '');
       logger.info('analyze_landing_or_form');
@@ -359,7 +359,7 @@ Return ONLY this JSON:
       if (!decision.isForm && decision.targetUrl && decision.targetUrl !== 'ALREADY_FORM') {
         logger.info({ targetUrl: decision.targetUrl }, 'navigate_application_form');
         await page.goto(decision.targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await new Promise(r => setTimeout(r, 3000));
+        await waitForPageReady(page);
       } else {
         logger.info('active_application_form');
       }
@@ -564,9 +564,10 @@ Return ONLY this JSON:
             throw errorObj;
           }
 
-          // Evaluate action outcome immediately (evaluateStep concept)
+          // Evaluate action outcome immediately (evaluateStep concept) using a fresh post-action observation
           const screenshotFilename = await run.saveScreenshot(page, step, 'outcome');
-          const evalResult = await evaluateStep(aiPage, task, action, observation, sendMessage);
+          const postActionObservation = await buildObservation(page, consoleBuffer);
+          const evalResult = await evaluateStep(aiPage, task, action, postActionObservation, sendMessage);
 
           stepStatus = evalResult.status;
           stepReason = evalResult.reason;

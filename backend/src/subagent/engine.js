@@ -223,183 +223,221 @@ export async function perceive(page, consoleBuffer = null) {
   const rawAriaSnapshot = await getAriaSnapshot(page);
   const ariaSnapshot = sanitizeAriaSnapshotRefs(rawAriaSnapshot);
 
-  // Always inject gpt-ref attributes regardless of ariaSnapshot availability.
-  // Previously, refs were skipped when ariaSnapshot was present, creating a
-  // dual-addressing-scheme bug where the LLM could reference eN tokens that
-  // had no corresponding DOM attribute, causing silent element_not_found.
-  const extracted = await page.evaluate(() => {
-    let maxRef = 0;
-    for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
-      const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > maxRef) maxRef = num;
+  let combinedText = '';
+  const combinedElements = [];
+  let refSeq = 0;
+
+  // Get max ref first across all frames to ensure correct starting sequence.
+  const frames = typeof page.frames === 'function' ? page.frames() : [page];
+  for (const frame of frames) {
+    const frameMax = await frame.evaluate(() => {
+      let m = 0;
+      for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
+        const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > m) m = num;
+        }
       }
-    }
-    let refSeq = maxRef;
-    const interestingSelector = [
-      'input', 'textarea', 'select', 'button', 'a[href]', 'canvas',
-      '[role]', '[contenteditable="true"]', '[tabindex]', '[onclick]',
-      'label[for]', 'details', 'summary'
-    ].join(',');
-    const visible = el => {
-      const rect = el.getBoundingClientRect();
-      const style = getComputedStyle(el);
-      return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
-        style.visibility !== 'hidden' && style.opacity !== '0';
-    };
-    const text = value => String(value || '').replace(/\s+/g, ' ').trim();
-    const labelText = el => {
-      const labelledBy = el.getAttribute('aria-labelledby');
-      if (labelledBy) {
-        const fromIds = labelledBy.split(/\s+/).map(id => document.getElementById(id)?.innerText || '').join(' ');
-        if (text(fromIds)) return text(fromIds);
-      }
-      if (el.labels?.length) {
-        const labels = Array.from(el.labels).map(label => label.innerText).join(' ');
-        if (text(labels)) return text(labels);
-      }
-      if (el.id) {
-        const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-        if (label && text(label.innerText)) return text(label.innerText);
-      }
-      const wrappingLabel = el.closest('label');
-      if (wrappingLabel && text(wrappingLabel.innerText)) return text(wrappingLabel.innerText);
-      return '';
-    };
-    const roleFor = el => {
-      const explicit = el.getAttribute('role');
-      if (explicit) return explicit;
-      const tag = el.tagName.toLowerCase();
-      const type = (el.getAttribute('type') || '').toLowerCase();
-      if (tag === 'textarea') return 'textbox';
-      if (tag === 'select') return el.multiple ? 'listbox' : 'combobox';
-      if (tag === 'button') return 'button';
-      if (tag === 'a') return 'link';
-      if (tag === 'canvas') return 'canvas';
-      if (tag === 'input') {
-        if (type === 'checkbox') return 'checkbox';
-        if (type === 'radio') return 'radio';
-        if (type === 'file') return 'button';
-        if (type === 'range') return 'slider';
-        return 'textbox';
-      }
-      if (el.isContentEditable) return 'textbox';
-      return 'generic';
-    };
-    const sectionContext = el => {
-      const fieldset = el.closest('fieldset');
-      if (fieldset) {
-        const legend = fieldset.querySelector('legend');
-        if (legend) return text(legend.innerText);
-      }
-      let node = el.parentElement;
-      for (let i = 0; i < 5 && node && node !== document.body; i++, node = node.parentElement) {
-        const heading = node.querySelector(':scope > h1, :scope > h2, :scope > h3, :scope > h4, [role="heading"]');
-        if (heading && text(heading.innerText)) return text(heading.innerText);
-      }
-      return '';
-    };
-    const accessibleName = el => {
-      let name = text(
-        el.getAttribute('aria-label') ||
-        labelText(el) ||
-        el.getAttribute('placeholder') ||
-        el.getAttribute('title') ||
-        el.innerText ||
-        el.value ||
-        el.getAttribute('name') ||
-        el.id
-      );
-      if (!name || name === '(unnamed)') {
+      return m;
+    }).catch(() => 0);
+    if (frameMax > refSeq) refSeq = frameMax;
+  }
+
+  // Now perceive each frame
+  for (const frame of frames) {
+    const frameUrl = frame.url();
+    // Skip empty or utility frames that are not the main frame
+    if (frame !== page && (!frameUrl || frameUrl === 'about:blank')) continue;
+
+    const result = await frame.evaluate((startRefSeq) => {
+      const text = value => String(value || '').replace(/\s+/g, ' ').trim();
+      const labelText = el => {
+        const labelledBy = el.getAttribute('aria-labelledby');
+        if (labelledBy) {
+          const fromIds = labelledBy.split(/\s+/).map(id => document.getElementById(id)?.innerText || '').join(' ');
+          if (text(fromIds)) return text(fromIds);
+        }
+        if (el.labels?.length) {
+          const labels = Array.from(el.labels).map(label => label.innerText).join(' ');
+          if (text(labels)) return text(labels);
+        }
+        if (el.id) {
+          const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+          if (label && text(label.innerText)) return text(label.innerText);
+        }
+        const wrappingLabel = el.closest('label');
+        if (wrappingLabel && text(wrappingLabel.innerText)) return text(wrappingLabel.innerText);
+        return '';
+      };
+      const roleFor = el => {
+        const explicit = el.getAttribute('role');
+        if (explicit) return explicit;
         const tag = el.tagName.toLowerCase();
-        if (tag === 'button' || el.getAttribute('role') === 'button') {
-          if (el.getAttribute('type') === 'submit') {
-            name = 'Submit query';
-          } else {
-            const hasSvg = el.querySelector('svg');
-            if (hasSvg) {
-              const svgHtml = hasSvg.outerHTML.toLowerCase();
-              const className = (el.className || '').toLowerCase();
-              if (
-                svgHtml.includes('arrow') ||
-                svgHtml.includes('send') ||
-                svgHtml.includes('submit') ||
-                svgHtml.includes('right') ||
-                svgHtml.includes('enter') ||
-                svgHtml.includes('up') ||
-                className.includes('submit') ||
-                className.includes('send') ||
-                el.getAttribute('data-testid') === 'send-button'
-              ) {
-                name = 'Submit query';
-              } else {
-                name = 'Button icon';
+        const type = (el.getAttribute('type') || '').toLowerCase();
+        if (tag === 'textarea') return 'textbox';
+        if (tag === 'select') return el.multiple ? 'listbox' : 'combobox';
+        if (tag === 'button') return 'button';
+        if (tag === 'a') return 'link';
+        if (tag === 'canvas') return 'canvas';
+        if (tag === 'input') {
+          if (type === 'checkbox') return 'checkbox';
+          if (type === 'radio') return 'radio';
+          if (type === 'file') return 'button';
+          if (type === 'range') return 'slider';
+          return 'textbox';
+        }
+        if (el.isContentEditable) return 'textbox';
+        return 'generic';
+      };
+      const sectionContext = el => {
+        const fieldset = el.closest('fieldset');
+        if (fieldset) {
+          const legend = fieldset.querySelector('legend');
+          if (legend) return text(legend.innerText);
+        }
+        let node = el.parentElement;
+        for (let i = 0; i < 5 && node && node !== document.body; i++, node = node.parentElement) {
+          const heading = node.querySelector(':scope > h1, :scope > h2, :scope > h3, :scope > h4, [role="heading"]');
+          if (heading && text(heading.innerText)) return text(heading.innerText);
+        }
+        return '';
+      };
+      const accessibleName = el => {
+        let name = text(
+          el.getAttribute('aria-label') ||
+          labelText(el) ||
+          el.getAttribute('placeholder') ||
+          el.getAttribute('title') ||
+          el.innerText ||
+          el.value ||
+          el.getAttribute('name') ||
+          el.id
+        );
+        if (!name || name === '(unnamed)') {
+          const tag = el.tagName.toLowerCase();
+          if (tag === 'button' || el.getAttribute('role') === 'button') {
+            if (el.getAttribute('type') === 'submit') {
+              name = 'Submit query';
+            } else {
+              const hasSvg = el.querySelector('svg');
+              if (hasSvg) {
+                const svgHtml = hasSvg.outerHTML.toLowerCase();
+                const className = (el.className || '').toLowerCase();
+                if (
+                  svgHtml.includes('arrow') ||
+                  svgHtml.includes('send') ||
+                  svgHtml.includes('submit') ||
+                  svgHtml.includes('right') ||
+                  svgHtml.includes('enter') ||
+                  svgHtml.includes('up') ||
+                  className.includes('submit') ||
+                  className.includes('send') ||
+                  el.getAttribute('data-testid') === 'send-button'
+                ) {
+                  name = 'Submit query';
+                } else {
+                  name = 'Button icon';
+                }
               }
             }
           }
         }
+        return name || '(unnamed)';
+      };
+      const cssSelectorFor = ref => `[data-gpt-auth-ref="${ref}"]`;
+      const optionList = select => Array.from(select.options || []).map(option => ({
+        text: text(option.textContent),
+        value: option.value,
+        selected: option.selected,
+        disabled: option.disabled
+      }));
+
+      let seq = startRefSeq;
+      const interestingSelector = [
+        'input', 'textarea', 'select', 'button', 'a[href]', 'canvas',
+        '[role]', '[contenteditable="true"]', '[tabindex]', '[onclick]',
+        'label[for]', 'details', 'summary'
+      ].join(',');
+      const visible = el => {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
+          style.visibility !== 'hidden' && style.opacity !== '0';
+      };
+
+      const elements = [];
+      for (const el of Array.from(document.querySelectorAll(interestingSelector))) {
+        if (!visible(el)) continue;
+        let ref = '';
+        let selector = '';
+        if (!el.dataset.gptAuthRef) {
+          seq += 1;
+          el.dataset.gptAuthRef = `gpt-ref-${seq}`;
+        }
+        ref = el.dataset.gptAuthRef;
+        selector = cssSelectorFor(ref);
+        const tag = el.tagName.toLowerCase();
+        const role = roleFor(el);
+        const type = (el.getAttribute('type') || tag).toLowerCase();
+        const nativeSelect = tag === 'select';
+        const customDropdown = !nativeSelect && (
+          role === 'combobox' ||
+          role === 'listbox' ||
+          el.getAttribute('aria-haspopup') === 'listbox' ||
+          el.getAttribute('aria-controls')
+        );
+        const value = nativeSelect
+          ? text(el.selectedOptions?.[0]?.textContent || el.value)
+          : (el.isContentEditable ? text(el.innerText) : text(el.value || el.getAttribute('aria-valuetext') || ''));
+        const name = accessibleName(el);
+        const context = sectionContext(el);
+        elements.push({
+          role,
+          name,
+          context,
+          ref,
+          selector,
+          tag,
+          type,
+          required: !!el.required || el.getAttribute('aria-required') === 'true',
+          disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
+          value,
+          checked: type === 'checkbox' || type === 'radio' || role === 'checkbox' || role === 'radio'
+            ? !!el.checked || el.getAttribute('aria-checked') === 'true'
+            : undefined,
+          selected: role === 'option' ? el.getAttribute('aria-selected') === 'true' || el.selected === true : undefined,
+          placeholder: text(el.getAttribute('placeholder')),
+          dropdownKind: nativeSelect ? 'native_select' : (customDropdown ? 'custom_combobox' : undefined),
+          options: nativeSelect ? optionList(el) : []
+        });
       }
-      return name || '(unnamed)';
-    };
-    const cssSelectorFor = ref => `[data-gpt-auth-ref="${ref}"]`;
-    const optionList = select => Array.from(select.options || []).map(option => ({
-      text: text(option.textContent),
-      value: option.value,
-      selected: option.selected,
-      disabled: option.disabled
-    }));
-    const elements = [];
-    for (const el of Array.from(document.querySelectorAll(interestingSelector))) {
-      if (!visible(el)) continue;
-      let ref = '';
-      let selector = '';
-      if (!el.dataset.gptAuthRef) {
-        refSeq += 1;
-        el.dataset.gptAuthRef = `gpt-ref-${refSeq}`;
+      return {
+        text: text(document.body?.innerText || '').slice(0, 16000),
+        elements,
+        newRefSeq: seq
+      };
+    }, refSeq).catch(() => null);
+
+    if (result) {
+      refSeq = result.newRefSeq;
+      if (result.text.trim()) {
+        const displayUrl = frameUrl.slice(0, 100);
+        combinedText += `\n--- Content from Frame (${displayUrl}) ---\n${result.text}\n`;
       }
-      ref = el.dataset.gptAuthRef;
-      selector = cssSelectorFor(ref);
-      const tag = el.tagName.toLowerCase();
-      const role = roleFor(el);
-      const type = (el.getAttribute('type') || tag).toLowerCase();
-      const nativeSelect = tag === 'select';
-      const customDropdown = !nativeSelect && (
-        role === 'combobox' ||
-        role === 'listbox' ||
-        el.getAttribute('aria-haspopup') === 'listbox' ||
-        el.getAttribute('aria-controls')
-      );
-      const value = nativeSelect
-        ? text(el.selectedOptions?.[0]?.textContent || el.value)
-        : (el.isContentEditable ? text(el.innerText) : text(el.value || el.getAttribute('aria-valuetext') || ''));
-      const name = accessibleName(el);
-      const context = sectionContext(el);
-      elements.push({
-        role,
-        name,
-        context,
-        ref,
-        selector,
-        tag,
-        type,
-        required: !!el.required || el.getAttribute('aria-required') === 'true',
-        disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
-        value,
-        checked: type === 'checkbox' || type === 'radio' || role === 'checkbox' || role === 'radio'
-          ? !!el.checked || el.getAttribute('aria-checked') === 'true'
-          : undefined,
-        selected: role === 'option' ? el.getAttribute('aria-selected') === 'true' || el.selected === true : undefined,
-        placeholder: text(el.getAttribute('placeholder')),
-        dropdownKind: nativeSelect ? 'native_select' : (customDropdown ? 'custom_combobox' : undefined),
-        options: nativeSelect ? optionList(el) : []
-      });
+      for (const el of result.elements) {
+        combinedElements.push({
+          ...el,
+          frameUrl
+        });
+      }
     }
-    return {
-      text: text(document.body?.innerText || '').slice(0, 16000),
-      elements
-    };
-  }).catch(() => ({ text: '', elements: [] }));
+  }
+
+  const extracted = {
+    text: combinedText.trim() || 'No text found on this page.',
+    elements: combinedElements
+  };
 
   const elementsWithHash = extracted.elements.map(el => ({
     ...el,
@@ -464,6 +502,22 @@ async function findActionElement(page, action) {
   // dual-addressing-scheme confusion that caused silent no-ops.
   const selector = action.selector || (action.ref ? `[data-gpt-auth-ref="${String(action.ref).replace(/"/g, '\\"')}"]` : null);
   if (!selector) return null;
+
+  const frames = typeof page.frames === 'function' ? page.frames() : [page];
+
+  // Try to find the element in each frame (useful for data-gpt-auth-ref injected inside iframes)
+  for (const frame of frames) {
+    const direct = await frame.$(selector).catch(() => null);
+    if (direct) return direct;
+
+    const legacyId = idFromLegacySelector(selector);
+    if (legacyId) {
+      const byId = await frame.$(attributeSelector('id', legacyId)).catch(() => null);
+      if (byId) return byId;
+    }
+  }
+
+  // Fallback to explicit iframe traversal using ' >>> '
   if (selector.includes(' >>> ')) {
     const parts = selector.split(' >>> ');
     let currentFrame = page.mainFrame ? page.mainFrame() : page;
@@ -483,14 +537,12 @@ async function findActionElement(page, action) {
       }
     }
   }
-  const direct = await page.$(selector).catch(() => null);
-  if (direct) return direct;
-  const legacyId = idFromLegacySelector(selector);
-  return legacyId ? page.$(attributeSelector('id', legacyId)).catch(() => null) : null;
+
+  return null;
 }
 
 async function elementInfo(page, el) {
-  return page.evaluate(element => {
+  return el.evaluate(element => {
     const role = element.getAttribute('role') || '';
     const tag = element.tagName.toLowerCase();
     const type = (element.getAttribute('type') || tag).toLowerCase();
@@ -508,32 +560,38 @@ async function elementInfo(page, el) {
       ),
       text: String(element.innerText || element.textContent || element.value || '').replace(/\s+/g, ' ').trim()
     };
-  }, el);
+  });
 }
 
 async function focusAndType(page, el, value) {
-  await page.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }), el).catch(() => {});
+  await el.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' })).catch(() => {});
   await el.click().catch(async () => {
     const box = await el.boundingBox?.().catch(() => null);
     if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   });
 
-  const isContentEditable = await page.evaluate(element => element.isContentEditable || element.getAttribute('contenteditable') === 'true', el).catch(() => false);
+  const isContentEditable = await el.evaluate(element => element.isContentEditable || element.getAttribute('contenteditable') === 'true').catch(() => false);
   const textVal = String(value ?? '');
 
   if (textVal.length > 80) {
-    // Fast path: use execCommand('insertText') to simulate a paste action.
-    // This is instant and correctly triggers the internal state of rich-text frameworks (React, Lexical, ProseMirror).
-    await page.evaluate(() => {
-      document.execCommand('selectAll', false, null);
-    }).catch(() => {});
-    const success = await page.evaluate((val) => {
-      return document.execCommand('insertText', false, val);
+    // Fast path: use execCommand('insertText') to simulate a paste action in the element's ownerDocument
+    const success = await el.evaluate((element, val) => {
+      element.focus();
+      if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+        element.select();
+      } else {
+        const range = element.ownerDocument.createRange();
+        range.selectNodeContents(element);
+        const sel = element.ownerDocument.defaultView.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      return element.ownerDocument.execCommand('insertText', false, val);
     }, textVal).catch(() => false);
 
     if (!success) {
-      // Fallback to DOM injection if execCommand fails/is not supported on the target
-      await page.evaluate((element, val, isEditable) => {
+      // Fallback to DOM injection
+      await el.evaluate((element, { val, isEditable }) => {
         if (isEditable) {
           element.innerText = val;
         } else {
@@ -541,10 +599,11 @@ async function focusAndType(page, el, value) {
         }
         element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));
-      }, el, textVal, isContentEditable);
+      }, { val: textVal, isEditable: isContentEditable });
     }
   } else {
     // Standard path for short texts: simulates human keyboard presses
+    await el.evaluate(element => element.focus()).catch(() => {});
     await page.keyboard.down('Control');
     await page.keyboard.press('a');
     await page.keyboard.up('Control');
@@ -555,14 +614,14 @@ async function focusAndType(page, el, value) {
 
 async function nativeSelect(page, el, value) {
   const target = String(value ?? '').trim();
-  const options = (await page.evaluate(element => {
+  const options = (await el.evaluate(element => {
     return Array.from(element.options || []).map(o => ({
       text: String(o.textContent || '').replace(/\s+/g, ' ').trim(),
       value: o.value,
       disabled: o.disabled,
       hidden: o.hidden
     }));
-  }, el)).map(option => ({ ...option, isPlaceholder: isDropdownPlaceholder(option) }));
+  })).map(option => ({ ...option, isPlaceholder: isDropdownPlaceholder(option) }));
   const match = findBestDropdownOption(options, target);
   if (!match) throw new Error(`element_not_found: native select option "${target}"`);
   const option = match;
@@ -574,7 +633,7 @@ async function nativeSelect(page, el, value) {
 
 async function customSelect(page, el, value) {
   const target = cleanText(value);
-  await page.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }), el).catch(() => {});
+  await el.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' })).catch(() => {});
   await el.click();
   await page.keyboard.down('Control').catch(() => {});
   await page.keyboard.press('a').catch(() => {});
@@ -582,7 +641,7 @@ async function customSelect(page, el, value) {
   await page.keyboard.type(target, { delay: 1 }).catch(() => {});
   await new Promise(resolve => setTimeout(resolve, 200));
 
-  const optionRef = await page.evaluate(targetText => {
+  const optionRef = await el.evaluate((element, targetText) => {
     const text = value => String(value || '').replace(/\s+/g, ' ').trim();
     const lower = text(targetText).toLowerCase();
     const visible = el => {
@@ -591,7 +650,7 @@ async function customSelect(page, el, value) {
       return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
         style.visibility !== 'hidden' && style.opacity !== '0';
     };
-    const options = Array.from(document.querySelectorAll('[role="option"], [role="menuitem"], li, div, button'))
+    const options = Array.from(element.ownerDocument.querySelectorAll('[role="option"], [role="menuitem"], li, div, button'))
       .filter(el => visible(el) && text(el.innerText || el.textContent).toLowerCase());
     options.sort((a, b) => text(a.innerText).length - text(b.innerText).length);
     const match = options.find(el => text(el.innerText || el.textContent).toLowerCase() === lower) ||
@@ -602,7 +661,7 @@ async function customSelect(page, el, value) {
   }, target);
 
   if (optionRef) {
-    const option = await page.$(`[data-gpt-auth-ref="${optionRef}"]`);
+    const option = await findActionElement(page, { ref: optionRef });
     if (option) {
       await option.click();
       return `Selected custom option "${target}"`;
@@ -613,7 +672,7 @@ async function customSelect(page, el, value) {
 }
 
 async function clickElement(page, el) {
-  await page.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }), el).catch(() => {});
+  await el.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' })).catch(() => {});
   try {
     await el.click();
   } catch {
@@ -624,11 +683,11 @@ async function clickElement(page, el) {
 }
 
 async function readChoiceState(page, el) {
-  return page.evaluate(element => !!element.checked || element.getAttribute('aria-checked') === 'true', el).catch(() => false);
+  return el.evaluate(element => !!element.checked || element.getAttribute('aria-checked') === 'true').catch(() => false);
 }
 
 async function uploadFile(page, el, filePath) {
-  const isFile = await page.evaluate(element => element.tagName === 'INPUT' && (element.getAttribute('type') || '').toLowerCase() === 'file', el);
+  const isFile = await el.evaluate(element => element.tagName === 'INPUT' && (element.getAttribute('type') || '').toLowerCase() === 'file');
   if (isFile) {
     if (typeof el.uploadFile === 'function') await el.uploadFile(filePath);
     else if (typeof el.setInputFiles === 'function') await el.setInputFiles(filePath);
@@ -692,6 +751,70 @@ export async function waitForStable(page, { quietMs = 500, timeoutMs = 5000 } = 
 }
 
 /**
+ * Robust wait for a page (main document and any frames) to load its dynamic SPA content
+ * and remove any spinners or loading screens, followed by DOM mutation settling.
+ */
+export async function waitForPageReady(page, { timeoutMs = 12000 } = {}) {
+  const start = Date.now();
+  console.log(`  ⏳ Waiting for page to load and settle...`);
+
+  // 1. Wait for body element
+  try {
+    await page.waitForSelector('body', { timeout: timeoutMs }).catch(() => {});
+  } catch (e) {}
+
+  // 2. Loop to check for content and spinners
+  while (Date.now() - start < timeoutMs) {
+    const frames = typeof page.frames === 'function' ? page.frames() : [page];
+    let totalTextLen = 0;
+    let hasInteractiveElements = false;
+    let hasActiveSpinner = false;
+    let hasActiveLoaderText = false;
+
+    for (const frame of frames) {
+      const state = await frame.evaluate(() => {
+        const text = (document.body?.innerText || '').trim();
+        const textLen = text.length;
+
+        const lowerText = text.toLowerCase();
+        const isLoadingText = lowerText.includes('loading...') || 
+                              lowerText.includes('loading page') || 
+                              lowerText.includes('please wait') || 
+                              (textLen < 150 && (lowerText.includes('loading') || lowerText.includes('wait')));
+
+        const hasInteractive = !!document.querySelector('input, textarea, select, button, a[href], [role="button"]');
+        const hasSpinner = !!document.querySelector('.spinner, .loading, #loading, [class*="spinner" i], [class*="loading" i]');
+
+        return { textLen, isLoadingText, hasInteractive, hasSpinner };
+      }).catch(() => null);
+
+      if (state) {
+        totalTextLen += state.textLen;
+        if (state.hasInteractive) hasInteractiveElements = true;
+        if (state.hasSpinner) hasActiveSpinner = true;
+        if (state.isLoadingText) hasActiveLoaderText = true;
+      }
+    }
+
+    // Ready condition: We have some actual text content, interactive elements,
+    // and no loading keywords or visual spinners are currently visible.
+    if (totalTextLen > 250 && hasInteractiveElements && !hasActiveSpinner && !hasActiveLoaderText) {
+      break;
+    }
+
+    // Fallback: If page has a large amount of text and interactive controls, it's likely ready
+    if (totalTextLen > 600 && hasInteractiveElements) {
+      break;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  // 3. Settle DOM mutations
+  await waitForStable(page, { quietMs: 500, timeoutMs: 4000 });
+}
+
+/**
  * Short MutationObserver-based DOM settle wait, specifically for post-type
  * verification. Shorter than waitForStable to avoid unnecessary delays, but
  * long enough for React/framework re-renders to flush after text input.
@@ -701,64 +824,91 @@ export async function waitForDomSettle(page, { quietMs = 200, timeoutMs = 2000 }
 }
 
 /**
- * Re-inject data-gpt-auth-ref attributes on all visible interactive elements.
- * Call this immediately before executing an action to ensure refs survive
- * React/framework re-renders that may have stripped injected DOM attributes
- * during the multi-second AI reasoning gap.
+ * Re-inject data-gpt-auth-ref attributes on all visible interactive elements
+ * across all active frames (iframes) on the page. Uses Node-level sequential sequence
+ * to guarantee completely unique refs.
  */
 export async function reinjectRefs(page) {
-  return page.evaluate(() => {
-    let maxRef = 0;
-    for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
-      const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > maxRef) maxRef = num;
+  let maxRef = 0;
+  const frames = typeof page.frames === 'function' ? page.frames() : [page];
+  for (const frame of frames) {
+    const frameMax = await frame.evaluate(() => {
+      let m = 0;
+      for (const el of Array.from(document.querySelectorAll('[data-gpt-auth-ref]'))) {
+        const match = el.dataset.gptAuthRef.match(/^gpt-ref-(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > m) m = num;
+        }
       }
-    }
-    let refSeq = maxRef;
-    const interestingSelector = [
-      'input', 'textarea', 'select', 'button', 'a[href]', 'canvas',
-      '[role]', '[contenteditable="true"]', '[tabindex]', '[onclick]',
-      'label[for]', 'details', 'summary'
-    ].join(',');
-    const visible = el => {
-      const rect = el.getBoundingClientRect();
-      const style = getComputedStyle(el);
-      return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
-        style.visibility !== 'hidden' && style.opacity !== '0';
-    };
-    let injected = 0;
-    for (const el of Array.from(document.querySelectorAll(interestingSelector))) {
-      if (!visible(el)) continue;
-      if (!el.dataset.gptAuthRef) {
-        refSeq += 1;
-        el.dataset.gptAuthRef = `gpt-ref-${refSeq}`;
-        injected++;
+      return m;
+    }).catch(() => 0);
+    if (frameMax > maxRef) maxRef = frameMax;
+  }
+
+  let refSeq = maxRef;
+  let totalInjected = 0;
+
+  for (const frame of frames) {
+    const frameUrl = frame.url();
+    if (frame !== page && (!frameUrl || frameUrl === 'about:blank')) continue;
+
+    const result = await frame.evaluate((currentRefSeq) => {
+      let seq = currentRefSeq;
+      const interestingSelector = [
+        'input', 'textarea', 'select', 'button', 'a[href]', 'canvas',
+        '[role]', '[contenteditable="true"]', '[tabindex]', '[onclick]',
+        'label[for]', 'details', 'summary'
+      ].join(',');
+      const visible = el => {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
+          style.visibility !== 'hidden' && style.opacity !== '0';
+      };
+      let injected = 0;
+      for (const el of Array.from(document.querySelectorAll(interestingSelector))) {
+        if (!visible(el)) continue;
+        if (!el.dataset.gptAuthRef) {
+          seq += 1;
+          el.dataset.gptAuthRef = `gpt-ref-${seq}`;
+          injected++;
+        }
       }
+      return { injected, newRefSeq: seq };
+    }, refSeq).catch(() => null);
+
+    if (result) {
+      refSeq = result.newRefSeq;
+      totalInjected += result.injected;
     }
-    return injected;
-  }).catch(() => 0);
+  }
+
+  return totalInjected;
 }
 
 /**
  * Read back the actual value of an element after typing, handling both
  * standard inputs (input.value) and contenteditable/rich-text editors.
+ * Evaluates inside the element handle context to ensure correct frame execution.
  */
 async function readBackValue(page, el) {
-  return page.evaluate(element => {
-    if (!element) return '';
-    // Standard input/textarea
-    if (element.value !== undefined && element.value !== '') {
-      return element.value;
-    }
-    // Contenteditable / rich-text (Perplexity, ChatGPT, Gemini composers)
-    if (element.isContentEditable || element.getAttribute('contenteditable') === 'true') {
-      return (element.innerText || element.textContent || '').trim();
-    }
-    // Fallback: try value then textContent
-    return element.value || (element.textContent || '').trim();
-  }, el).catch(() => '');
+  if (typeof el.evaluate === 'function') {
+    return el.evaluate(element => {
+      if (!element) return '';
+      // Standard input/textarea
+      if (element.value !== undefined && element.value !== '') {
+        return element.value;
+      }
+      // Contenteditable / rich-text (Perplexity, ChatGPT, Gemini composers)
+      if (element.isContentEditable || element.getAttribute('contenteditable') === 'true') {
+        return (element.innerText || element.textContent || '').trim();
+      }
+      // Fallback
+      return element.value || (element.textContent || '').trim();
+    }).catch(() => '');
+  }
+  return '';
 }
 
 function resolveProfileValue(value, profile = {}) {
