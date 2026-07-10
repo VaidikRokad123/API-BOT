@@ -642,7 +642,7 @@ Return ONLY this JSON:
         }
       }
 
-      if (fsm.state === 'fail' || fsm.state === 'finish' || fsm.state === 'submitted') {
+      if (fsm.state === 'fail' || fsm.state === 'finish' || fsm.state === 'verify' || fsm.state === 'submitted' || (typeof fsm.isDone === 'function' && fsm.isDone())) {
         break;
       }
     }
