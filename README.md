@@ -6,6 +6,7 @@
 
 | Feature | Description |
 |---|---|
+| **Local LLM API** | Standard **OpenAI-compatible REST API** (`/v1/chat/completions`, `/v1/models`) to use your session as a local LLM in Python, Node.js, LangChain, Chatbox, etc. |
 | **Login** | Pick a provider and save your session once |
 | **Chat** | Interactive terminal chat with memory across messages |
 | **Ask** | One-shot question — prints the answer and returns |
@@ -13,13 +14,14 @@
 | **Apply** | Researches the company, then AI fills and submits job applications automatically |
 | **Browser Subagent** | Delegate natural-language browser tasks (check feeds, pull headlines, extract data) |
 
-Everything runs from a single interactive console (`node agent.js`). The browser is **visible by default** so you can watch it work.
+Everything runs from a single interactive console (`node agent.js`) or web server (`npm start`). The browser is **visible by default** so you can watch it work.
 
 ---
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Local LLM API (OpenAI Compatible)](#local-llm-api-openai-compatible)
 - [Requirements](#requirements)
 - [The Console](#the-console)
 - [Web Interface](#web-interface)
@@ -75,6 +77,47 @@ Then inside the console:
 > /chat           start chatting
 > /apply <url>    auto-fill a job application
 ```
+
+---
+
+## Local LLM API (OpenAI Compatible)
+
+Run your browser session as a local LLM API for Python, Node.js, LangChain, Chatbox, or any OpenAI-compatible app.
+
+1. **Start the API server**:
+   ```bash
+   npm start
+   # Local Server: http://localhost:3000
+   # Remote via ngrok: https://karine-trisomic-karima.ngrok-free.dev
+   ```
+
+2. **Use in Python (`openai` SDK)**:
+   ```python
+   from openai import OpenAI
+
+   # Point client to local server or your ngrok URL
+   client = OpenAI(
+       base_url="https://karine-trisomic-karima.ngrok-free.dev/v1",  # or "http://localhost:3000/v1"
+       api_key="local",
+       default_headers={"ngrok-skip-browser-warning": "true"}
+   )
+
+   res = client.chat.completions.create(
+       model="grok", # "chatgpt" | "grok" | "gemini" | "perplexity" | "deepseek"
+       messages=[{"role": "user", "content": "Explain quantum computing simply"}]
+   )
+   print(res.choices[0].message.content)
+   ```
+
+3. **cURL Request (Remote via ngrok)**:
+   ```bash
+   curl https://karine-trisomic-karima.ngrok-free.dev/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -H "ngrok-skip-browser-warning: true" \
+     -d '{"model":"chatgpt","messages":[{"role":"user","content":"Hello from anywhere!"}]}'
+   ```
+
+For full documentation, ngrok setup, persistent multi-turn sessions, LangChain setup, and API reference, see [DOCS_LLM_API.md](DOCS_LLM_API.md).
 
 ---
 

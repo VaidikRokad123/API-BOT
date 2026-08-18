@@ -17,6 +17,7 @@ import applyRoutes from './routes/apply.js';
 import browserRoutes from './routes/browser.js';
 import councilRoutes from './routes/council.js';
 import historyRoutes from './routes/history.js';
+import llmApiRoutes from './routes/llm_api.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,6 +60,7 @@ app.get('/health', (req, res) => {
 });
 
 // ─── API Routes ────────────────────────────────────────────────────────────
+app.use('/', llmApiRoutes);
 app.use('/api', statusRoutes);
 app.use('/api', providerRoutes);
 app.use('/api', chatRoutes);

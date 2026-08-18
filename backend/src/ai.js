@@ -15,19 +15,16 @@ export function readActiveKey() {
 }
 
 export async function openAiSession(visible = false, options = {}) {
-  if (!fs.existsSync(ACTIVE_FILE)) {
-    throw new Error('No provider selected yet. Type /login first.');
-  }
-
-  _providerKey = readActiveKey();
-  const provider = getProvider(_providerKey);
-  const sFile    = sessionFile(_providerKey);
+  const targetKey = options.provider || readActiveKey();
+  const provider = getProvider(targetKey);
+  const sFile    = sessionFile(targetKey);
 
   if (!fs.existsSync(sFile)) {
-    throw new Error(`No session for ${provider.config.name}. Type /login first.`);
+    throw new Error(`No session for ${provider.config.name} (${targetKey}). Please login to ${provider.config.name} first.`);
   }
 
-  const browser = await launchBrowser(visible, _providerKey, { engine: options.engine, forceAutomated: true });
+  _providerKey = targetKey;
+  const browser = await launchBrowser(visible, targetKey, { engine: options.engine, forceAutomated: true });
   const ctx     = await newStealthContext(browser, sFile);
   const page    = await ctx.newPage();
 
@@ -39,14 +36,14 @@ export async function openAiSession(visible = false, options = {}) {
     console.log('Ready ✓\n');
   } catch {
     await browser.close();
-    throw new Error(`Login expired for ${provider.config.name}. Type /login again.`);
+    throw new Error(`Login expired for ${provider.config.name}. Please login to ${provider.config.name} again.`);
   }
 
-  return { browser, page, providerName: provider.config.name };
+  return { browser, page, providerName: provider.config.name, providerKey: targetKey };
 }
 
-export async function sendMessage(page, text) {
-  const key      = _providerKey || readActiveKey();
+export async function sendMessage(page, text, providerKey = null) {
+  const key      = providerKey || _providerKey || readActiveKey();
   const provider = getProvider(key);
   return provider.sendMessage(page, text);
 }
