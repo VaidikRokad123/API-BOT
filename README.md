@@ -7,6 +7,7 @@
 | Feature | Description |
 |---|---|
 | **Local LLM API** | Standard **OpenAI-compatible REST API** (`/v1/chat/completions`, `/v1/models`) to use your session as a local LLM in Python, Node.js, LangChain, Chatbox, etc. |
+| **Job Finder** | Search jobs using **Firecrawl**, match with your resume (`profile.json`), filter by role, experience, location, CTC, and auto-apply! |
 | **Login** | Pick a provider and save your session once |
 | **Chat** | Interactive terminal chat with memory across messages |
 | **Ask** | One-shot question — prints the answer and returns |

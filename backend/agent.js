@@ -130,6 +130,53 @@ const COMMANDS = {
     },
   },
 
+  '/jobs': {
+    usage:   '/jobs [query]',
+    desc:    'Find & match jobs using Firecrawl and resume profile',
+    handler: async (args, rl) => {
+      const { searchAndMatchJobs, getCandidateProfile } = await import('./src/job_finder.js');
+      try {
+        const profile = getCandidateProfile();
+        console.log(`\n  Candidate Profile: ${profile.name} (${profile.desiredRole || profile.currentRole})`);
+        
+        const roleAns = (await new Promise(r => rl.question(`  Role [default: "${profile.desiredRole || profile.currentRole}"]: `, r))).trim();
+        const locAns = (await new Promise(r => rl.question(`  Location [default: "${profile.city || profile.location}"]: `, r))).trim();
+        const ctcAns = (await new Promise(r => rl.question(`  Min CTC [default: "${profile.expectedCTC || '6 LPA'}"]: `, r))).trim();
+
+        const jobs = await searchAndMatchJobs({
+          role: roleAns || profile.desiredRole || profile.currentRole,
+          location: locAns || profile.city || profile.location,
+          minCtc: ctcAns || profile.expectedCTC,
+          query: args.trim()
+        });
+
+        if (jobs.length === 0) {
+          console.log('\n  No jobs matched your criteria.\n');
+          return;
+        }
+
+        console.log('\n  Top Discovered Jobs:\n');
+        jobs.slice(0, 5).forEach((j, idx) => {
+          console.log(`  ${idx + 1}. [${j.matchScore}% Match] ${j.title} @ ${j.company}`);
+          console.log(`     Location: ${j.location} | CTC: ${j.ctc}`);
+          console.log(`     URL: ${j.url}`);
+          console.log(`     Summary: ${j.summary}\n`);
+        });
+
+        const applyAns = (await new Promise(r => rl.question('  Enter job number to auto-apply (or press Enter to skip): ', r))).trim();
+        const selectedIdx = parseInt(applyAns, 10) - 1;
+        if (selectedIdx >= 0 && selectedIdx < jobs.length) {
+          const selectedJob = jobs[selectedIdx];
+          console.log(`\n  Launching auto-application flow for ${selectedJob.title}...\n`);
+          const { apply } = await import('./src/apply/index.js');
+          await apply(selectedJob.url, true, { aiEngine: 'playwright', appEngine: 'real-chrome', doResearch: true });
+        }
+      } catch (err) {
+        console.error('  ✗ Job discovery error:', err.message);
+      }
+    },
+  },
+
   '/apply': {
     usage:   '/apply <url> [--hidden]',
     desc:    'AI-driven job application form filler (interactive configuration)',

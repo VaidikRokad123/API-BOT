@@ -379,6 +379,66 @@ Closes and terminates a persistent browser API session.
 
 ---
 
+### 6. `POST /api/jobs/search` (Job Finder & Firecrawl Engine)
+
+Finds jobs using local/cloud **Firecrawl**, matches them against your resume (`backend/data/profile.json`), and filters by role, experience, location, and min CTC.
+
+**Request:**
+```bash
+curl https://karine-trisomic-karima.ngrok-free.dev/api/jobs/search \
+  -H "Content-Type: application/json" \
+  -H "ngrok-skip-browser-warning: true" \
+  -d '{
+    "role": "Full Stack Developer",
+    "location": "Surat",
+    "minCtc": "6 LPA",
+    "minExp": 0,
+    "maxExp": 3,
+    "limit": 10
+  }'
+```
+
+**Response Example:**
+```json
+{
+  "success": true,
+  "count": 3,
+  "jobs": [
+    {
+      "id": "job-1723985000-abc",
+      "title": "Full Stack Engineer (Node.js + React)",
+      "company": "TechCorp",
+      "location": "Surat / Hybrid",
+      "url": "https://example.com/careers/job-123",
+      "matchScore": 92,
+      "matchingSkills": ["JavaScript", "TypeScript", "React", "Node.js", "Express", "MongoDB"],
+      "missingSkills": [],
+      "summary": "Matches 6 key skills (JavaScript, TypeScript, React, Node.js)",
+      "ctc": "6 LPA",
+      "experience": "1-3 years"
+    }
+  ]
+}
+```
+
+---
+
+### 7. `POST /api/jobs/apply`
+
+Triggers the AI auto-application flow for a specific job posting URL.
+
+**Request:**
+```bash
+curl https://karine-trisomic-karima.ngrok-free.dev/api/jobs/apply \
+  -H "Content-Type: application/json" \
+  -H "ngrok-skip-browser-warning: true" \
+  -d '{
+    "url": "https://example.com/careers/job-123"
+  }'
+```
+
+---
+
 ## Configuration & Security Options
 
 In `backend/.env`:

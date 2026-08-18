@@ -4,6 +4,8 @@ import { io } from 'socket.io-client';
 import Dashboard from './components/Dashboard';
 import Chat from './components/Chat';
 import Apply from './components/Apply';
+import JobFinder from './components/JobFinder';
+import ApiDashboard from './components/ApiDashboard';
 import Browser from './components/Browser';
 import History from './components/History';
 import Settings from './components/Settings';
@@ -13,14 +15,16 @@ const NAV = [
     section: 'Workspace',
     items: [
       { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
+      { id: 'jobs', label: 'Job Finder', icon: 'search' },
       { id: 'chat', label: 'Chat', icon: 'chat' },
-      { id: 'apply', label: 'Apply', icon: 'apply' },
+      { id: 'apply', label: 'Apply Form', icon: 'apply' },
       { id: 'browser', label: 'Browser Agent', icon: 'globe' }
     ]
   },
   {
-    section: 'System',
+    section: 'Developer & System',
     items: [
+      { id: 'api', label: 'Local LLM API', icon: 'code' },
       { id: 'history', label: 'History', icon: 'clock' },
       { id: 'settings', label: 'Settings', icon: 'settings' }
     ]
@@ -29,9 +33,11 @@ const NAV = [
 
 const PAGE_META = {
   dashboard: { title: 'Dashboard', subtitle: 'Overview of your automation runs and quick actions' },
+  jobs: { title: 'Job Finder', subtitle: 'Search web jobs using Firecrawl & match with your resume' },
   chat: { title: 'Chat', subtitle: 'Multi-turn conversation with your active AI provider' },
   apply: { title: 'Job Apply', subtitle: 'AI researches the role and fills application forms' },
   browser: { title: 'Browser Agent', subtitle: 'Natural-language tasks executed in a real browser' },
+  api: { title: 'Local LLM API', subtitle: 'OpenAI-compatible endpoints & developer playground' },
   history: { title: 'History', subtitle: 'Application outcomes and failure analytics' },
   settings: { title: 'Settings', subtitle: 'Providers, engines, sessions, and connection' }
 };
@@ -41,6 +47,10 @@ function NavIcon({ name }) {
   switch (name) {
     case 'grid':
       return <svg {...props}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>;
+    case 'search':
+      return <svg {...props}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><path d="M11 8a3 3 0 0 0-3 3"/></svg>;
+    case 'code':
+      return <svg {...props}><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>;
     case 'chat':
       return <svg {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
     case 'apply':
@@ -69,6 +79,7 @@ export default function App() {
   const BACKEND_URL = localStorage.getItem('BACKEND_URL') || import.meta.env.VITE_BACKEND_URL || '';
 
   const API = {
+    backendUrl: BACKEND_URL,
     async get(url) {
       const res = await fetch(`${BACKEND_URL}/api${url}`, {
         headers: { 'ngrok-skip-browser-warning': 'true' }
@@ -83,6 +94,24 @@ export default function App() {
           'ngrok-skip-browser-warning': 'true'
         },
         body: JSON.stringify(body)
+      });
+      return res.json();
+    },
+    async rawGet(endpoint) {
+      const res = await fetch(`${BACKEND_URL}${endpoint}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+      return res.json();
+    },
+    async rawPost(endpoint, body = {}, customHeaders = {}) {
+      const res = await fetch(`${BACKEND_URL}${endpoint}`, {
+        method: customHeaders.method || 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          ...customHeaders
+        },
+        body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined
       });
       return res.json();
     }
@@ -219,9 +248,11 @@ export default function App() {
 
         <div className="content-area">
           {currentPage === 'dashboard' && <Dashboard ctx={ctx} />}
+          {currentPage === 'jobs' && <JobFinder ctx={ctx} />}
           {currentPage === 'chat' && <Chat ctx={ctx} />}
           {currentPage === 'apply' && <Apply ctx={ctx} />}
           {currentPage === 'browser' && <Browser ctx={ctx} />}
+          {currentPage === 'api' && <ApiDashboard ctx={ctx} />}
           {currentPage === 'history' && <History ctx={ctx} />}
           {currentPage === 'settings' && <Settings ctx={ctx} />}
         </div>

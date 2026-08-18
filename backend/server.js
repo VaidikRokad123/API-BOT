@@ -18,6 +18,7 @@ import browserRoutes from './routes/browser.js';
 import councilRoutes from './routes/council.js';
 import historyRoutes from './routes/history.js';
 import llmApiRoutes from './routes/llm_api.js';
+import jobFinderRoutes from './routes/job_finder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,6 +70,7 @@ app.use('/api', applyRoutes);
 app.use('/api', browserRoutes);
 app.use('/api', councilRoutes);
 app.use('/api', historyRoutes);
+app.use('/api', jobFinderRoutes);
 
 // ─── SPA fallback ──────────────────────────────────────────────────────────
 app.get('*splat', (req, res) => {

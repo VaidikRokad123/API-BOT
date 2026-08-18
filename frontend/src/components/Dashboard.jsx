@@ -37,10 +37,12 @@ export default function Dashboard({ ctx }) {
   }, []);
 
   const actions = [
-    { id: 'chat', icon: 'teal', title: 'Chat', desc: 'Interactive session with your logged-in AI provider', stat: 'teal' },
-    { id: 'apply', icon: 'green', title: 'Apply to Job', desc: 'Research company, fill forms, and submit applications', stat: 'green' },
-    { id: 'browser', icon: 'blue', title: 'Browser Agent', desc: 'Delegate research and extraction tasks in plain English', stat: 'blue' },
-    { id: 'settings', icon: 'violet', title: 'Settings', desc: 'Manage providers, browser engines, and sessions', stat: 'violet' }
+    { id: 'jobs', icon: 'teal', title: 'Find Matching Jobs', desc: 'Search web jobs with Firecrawl & AI resume matching', stat: 'teal' },
+    { id: 'apply', icon: 'green', title: 'Auto Apply to Job', desc: 'Research company, fill forms, and submit applications', stat: 'green' },
+    { id: 'api', icon: 'blue', title: 'Local LLM API', desc: 'Use local OpenAI-compatible API from Python, cURL, & ngrok', stat: 'blue' },
+    { id: 'chat', icon: 'violet', title: 'AI Chat', desc: 'Interactive session with your logged-in AI provider', stat: 'violet' },
+    { id: 'browser', icon: 'amber', title: 'Browser Agent', desc: 'Delegate research and extraction tasks in plain English', stat: 'amber' },
+    { id: 'settings', icon: 'teal', title: 'Settings', desc: 'Manage providers, browser engines, and sessions', stat: 'teal' }
   ];
 
   return (
