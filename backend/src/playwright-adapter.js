@@ -271,11 +271,30 @@ export class PlaywrightBrowser {
     // Inject stealth evasions to mask navigator.webdriver and headless flags for Cloudflare Turnstile
     await this.context.addInitScript(() => {
       try {
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
+          configurable: true,
+        });
+
         if (!window.chrome) {
-          window.chrome = { runtime: {}, loadTimes: () => {}, csi: () => {}, app: {} };
+          window.chrome = {};
+        }
+        window.chrome.runtime = window.chrome.runtime || {
+          PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' },
+          PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+          PlatformNaclArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+          RequestUpdateCheckStatus: { THROTTLED: 'throttled', NO_UPDATE: 'no_update', UPDATE_AVAILABLE: 'update_available' },
+          OnInstalledReason: { INSTALL: 'install', UPDATE: 'update', CHROME_UPDATE: 'chrome_update', SHARED_MODULE_UPDATE: 'shared_module_update' },
+          OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
+        };
+
+        if (navigator.permissions && navigator.permissions.query) {
+          const originalQuery = navigator.permissions.query;
+          navigator.permissions.query = (parameters) => (
+            parameters.name === 'notifications'
+              ? Promise.resolve({ state: Notification.permission })
+              : originalQuery(parameters)
+          );
         }
       } catch (e) { /* ignore */ }
     });

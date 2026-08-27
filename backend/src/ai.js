@@ -95,15 +95,40 @@ export async function openAiSession(visible = false, options = {}) {
     // Check if Cloudflare Turnstile challenge is active
     let pageTitle = await page.title().catch(() => '');
     if (landingUrl.includes('__cf_chl_rt_tk') || pageTitle.includes('Just a moment') || pageTitle.includes('Cloudflare')) {
-      console.log('  ⏳ [Cloudflare] Turnstile challenge detected. Waiting for automated verification...');
+      console.log('  ⏳ [Cloudflare] Turnstile challenge detected. Running automated solver...');
       for (let i = 0; i < 30; i++) {
-        await page.waitForTimeout(1000);
         landingUrl = page.url();
         pageTitle = await page.title().catch(() => '');
         if (!landingUrl.includes('__cf_chl_rt_tk') && !pageTitle.includes('Just a moment') && !pageTitle.includes('Cloudflare')) {
           console.log(`  ✓ [Cloudflare] Challenge passed. Redirected to: ${landingUrl}`);
           break;
         }
+
+        // Try clicking Turnstile checkbox inside iframes
+        try {
+          const frames = page.frames ? page.frames() : [];
+          for (const frame of frames) {
+            const frameUrl = frame.url ? frame.url() : '';
+            if (frameUrl.includes('cloudflare') || frameUrl.includes('turnstile') || frameUrl.includes('challenges.cloudflare.com')) {
+              const checkbox = await frame.$('input[type="checkbox"], .ctp-checkbox-label, #challenge-stage, label, span.mark').catch(() => null);
+              if (checkbox) {
+                console.log('  👉 [Cloudflare] Clicking Turnstile checkbox in frame...');
+                await checkbox.click().catch(() => {});
+              }
+            }
+          }
+
+          // Click Turnstile widget in main page
+          const cfBox = await page.$('#cf-turnstile, #turnstile-wrapper, [class*="cf-turnstile"], iframe[src*="cloudflare"]').catch(() => null);
+          if (cfBox) {
+            const box = await cfBox.boundingBox().catch(() => null);
+            if (box) {
+              await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2).catch(() => {});
+            }
+          }
+        } catch (e) { /* ignore */ }
+
+        await page.waitForTimeout(1000);
       }
     }
 
