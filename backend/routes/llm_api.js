@@ -110,7 +110,20 @@ const chatCompletionsHandler = async (req, res) => {
       keep_alive
     } = req.body;
 
-    const requestedSessionId = session_id || altSessionId;
+    const authHeader = req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '').trim() : null;
+    const configuredKey = process.env.LLM_API_KEY || process.env.API_KEY;
+    const bearerAsSession = authHeader && authHeader !== configuredKey && authHeader !== 'local' ? authHeader : null;
+
+    const requestedSessionId =
+      session_id ||
+      altSessionId ||
+      req.headers['x-session-id'] ||
+      req.headers['session-id'] ||
+      req.headers['session_id'] ||
+      bearerAsSession ||
+      req.query?.session_id ||
+      req.query?.sessionId;
+
     if (requestedSessionId || keep_alive === true) {
       keepSessionAlive = true;
     }
