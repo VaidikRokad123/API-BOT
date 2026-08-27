@@ -1,4 +1,5 @@
 import { waitForStable, insertPrompt } from './index.js';
+import { solveAntiBotChallenge } from '../stealth.js';
 
 export const config = {
   key:           'deepseek',
@@ -13,6 +14,7 @@ const RESPONSE = '.ds-markdown';
 export async function sendMessage(page, text) {
   const before = (await page.$$(RESPONSE)).length;
 
+  await solveAntiBotChallenge(page, { maxWaitMs: 5000 }).catch(() => {});
   await insertPrompt(page, 'textarea#chat-input, textarea', text, { maxLength: config.maxInputLength });
   
   // Find the submit/send button next to the input area

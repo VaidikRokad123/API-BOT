@@ -13,6 +13,8 @@
 //   2. ElementHandle method names differ (uploadFile→setInputFiles,
 //      select→selectOption). Wrapped on PlaywrightElement.
 
+import { STEALTH_INJECTION_SCRIPT } from './stealth.js';
+
 function mapWaitUntil(waitUntil) {
   if (waitUntil === 'networkidle0' || waitUntil === 'networkidle2') return 'networkidle';
   if (waitUntil === 'load' || waitUntil === 'domcontentloaded' || waitUntil === 'networkidle' || waitUntil === 'commit') return waitUntil;
@@ -268,36 +270,8 @@ export class PlaywrightBrowser {
     if (recordVideo) opts.recordVideo = recordVideo;
     this.context = await this.browser.newContext(opts);
 
-    // Inject stealth evasions to mask navigator.webdriver and headless flags for Cloudflare Turnstile
-    await this.context.addInitScript(() => {
-      try {
-        Object.defineProperty(navigator, 'webdriver', {
-          get: () => undefined,
-          configurable: true,
-        });
-
-        if (!window.chrome) {
-          window.chrome = {};
-        }
-        window.chrome.runtime = window.chrome.runtime || {
-          PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' },
-          PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
-          PlatformNaclArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
-          RequestUpdateCheckStatus: { THROTTLED: 'throttled', NO_UPDATE: 'no_update', UPDATE_AVAILABLE: 'update_available' },
-          OnInstalledReason: { INSTALL: 'install', UPDATE: 'update', CHROME_UPDATE: 'chrome_update', SHARED_MODULE_UPDATE: 'shared_module_update' },
-          OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
-        };
-
-        if (navigator.permissions && navigator.permissions.query) {
-          const originalQuery = navigator.permissions.query;
-          navigator.permissions.query = (parameters) => (
-            parameters.name === 'notifications'
-              ? Promise.resolve({ state: Notification.permission })
-              : originalQuery(parameters)
-          );
-        }
-      } catch (e) { /* ignore */ }
-    });
+    // Inject full stealth evasions from stealth.js
+    await this.context.addInitScript(STEALTH_INJECTION_SCRIPT);
 
     return this.context;
   }

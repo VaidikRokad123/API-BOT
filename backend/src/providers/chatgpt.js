@@ -1,4 +1,5 @@
 import { waitForStable, insertPrompt } from './index.js';
+import { solveAntiBotChallenge } from '../stealth.js';
 
 export const config = {
   key:           'chatgpt',
@@ -12,46 +13,30 @@ const RESPONSE = '[data-message-author-role="assistant"]';
 
 export async function sendMessage(page, text) {
   const before = (await page.$$(RESPONSE)).length;
-  const currentUrl = page.url();
+  const currentUrl = page.url ? page.url() : '';
 
   if (currentUrl.includes('/login') || currentUrl.includes('/auth') || currentUrl.includes('/sign-in')) {
     throw new Error(`ChatGPT session has expired (redirected to: ${currentUrl}). Please run /login again.`);
   }
 
-  // Handle any popup blocker dialogs (Got it, Close, etc.)
-  const popupTextMatchers = ["stay here", "dismiss", "ok", "close", "got it", "okay, let's go"];
-  await page.evaluate((matchers) => {
-    const buttons = Array.from(document.querySelectorAll('button'));
-    for (const btn of buttons) {
-      const text = btn.innerText.trim().toLowerCase();
-      if (matchers.some(m => text === m || text.includes(m))) {
-        const rect = btn.getBoundingClientRect();
-        const style = window.getComputedStyle(btn);
-        if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
-          btn.click();
-        }
-      }
-    }
-  }, popupTextMatchers).catch(() => {});
+  // Automatic challenge & popup resolution
+  await solveAntiBotChallenge(page, { maxWaitMs: 8000 }).catch(() => {});
 
-  // Fallback for standard modal/dialog buttons
+  const promptSelector = '#prompt-textarea, [data-testid="prompt-textarea"], div[contenteditable="true"], textarea[data-id="root"]';
   try {
-    const dialogBtn = await page.$('[class*="modal"] button, [role="dialog"] button');
-    if (dialogBtn) {
-      await dialogBtn.click().catch(() => {});
-    }
+    await page.waitForSelector(promptSelector, { visible: true, timeout: 8000 });
   } catch (e) {
-    // Ignored
+    // Attempt second recovery pass if blocked
+    await solveAntiBotChallenge(page, { maxWaitMs: 10000 }).catch(() => {});
+    try {
+      await page.waitForSelector(promptSelector, { visible: true, timeout: 5000 });
+    } catch {
+      throw new Error(`ChatGPT text area not visible — may be blocked by a modal/CAPTCHA. Error: ${e.message}`);
+    }
   }
 
   try {
-    await page.waitForSelector('#prompt-textarea', { visible: true, timeout: 8000 });
-  } catch (e) {
-    throw new Error(`ChatGPT text area not visible — may be blocked by a modal/CAPTCHA. Error: ${e.message}`);
-  }
-
-  try {
-    await insertPrompt(page, '#prompt-textarea', text, { maxLength: config.maxInputLength });
+    await insertPrompt(page, promptSelector, text, { maxLength: config.maxInputLength });
   } catch (e) {
     throw new Error(`Failed to type prompt into ChatGPT. Error: ${e.message}`);
   }

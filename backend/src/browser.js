@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { spawn, execSync } from 'child_process';
 import { PlaywrightBrowser, PlaywrightPersistentBrowser } from './playwright-adapter.js';
 import { BROWSER_PROFILES_DIR } from './config.js';
+import { STEALTH_LAUNCH_ARGS } from './stealth.js';
 
 // Initialize stealth plugin
 puppeteer.use(StealthPlugin());
@@ -277,15 +278,8 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
   }
   const launchOptions = {
     headless: useHeadless,
-    ignoreDefaultArgs: ['--enable-automation'],
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--disable-infobars',
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--window-size=1280,900',
-    ],
+    ignoreDefaultArgs: ['--enable-automation', '--disable-popup-blocking', '--disable-extensions'],
+    args: [...STEALTH_LAUNCH_ARGS],
   };
   if (browserChannel) launchOptions.channel = browserChannel;
   const pwBrowser = await chromium.launch(launchOptions);

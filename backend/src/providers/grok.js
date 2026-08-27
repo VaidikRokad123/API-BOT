@@ -1,4 +1,5 @@
 import { waitForStable, insertPrompt } from './index.js';
+import { solveAntiBotChallenge } from '../stealth.js';
 
 export const config = {
   key:           'grok',
@@ -13,6 +14,7 @@ const RESPONSE = '[data-testid="assistant-message"]';
 export async function sendMessage(page, text) {
   const before = (await page.$$(RESPONSE)).length;
 
+  await solveAntiBotChallenge(page, { maxWaitMs: 5000 }).catch(() => {});
   await insertPrompt(page, '.ProseMirror', text, { maxLength: config.maxInputLength });
 
   // Try to find the send/submit button or press Enter

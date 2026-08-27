@@ -2,6 +2,7 @@ import fs from 'fs';
 import { launchBrowser, newStealthContext } from './browser.js';
 import { ACTIVE_FILE, sessionFile } from './config.js';
 import { getProvider } from './providers/index.js';
+import { solveAntiBotChallenge } from './stealth.js';
 
 // Active provider key for this process — set once by openAiSession().
 let _providerKey = null;
@@ -89,70 +90,17 @@ export async function openAiSession(visible = false, options = {}) {
   await page.goto(provider.config.url);
 
   try {
-    let landingUrl = page.url();
+    const landingUrl = page.url ? page.url() : '';
     console.log(`[AI Navigated to: ${landingUrl}]`);
 
-    // Check if Cloudflare Turnstile challenge is active
-    let pageTitle = await page.title().catch(() => '');
-    if (landingUrl.includes('__cf_chl_rt_tk') || pageTitle.includes('Just a moment') || pageTitle.includes('Cloudflare')) {
-      console.log('  ⏳ [Cloudflare] Turnstile challenge detected. Running automated solver...');
-      for (let i = 0; i < 30; i++) {
-        landingUrl = page.url();
-        pageTitle = await page.title().catch(() => '');
-        if (!landingUrl.includes('__cf_chl_rt_tk') && !pageTitle.includes('Just a moment') && !pageTitle.includes('Cloudflare')) {
-          console.log(`  ✓ [Cloudflare] Challenge passed. Redirected to: ${landingUrl}`);
-          break;
-        }
-
-        // Try clicking Turnstile checkbox inside iframes
-        try {
-          const frames = page.frames ? page.frames() : [];
-          for (const frame of frames) {
-            const frameUrl = frame.url ? frame.url() : '';
-            if (frameUrl.includes('cloudflare') || frameUrl.includes('turnstile') || frameUrl.includes('challenges.cloudflare.com')) {
-              const checkbox = await frame.$('input[type="checkbox"], .ctp-checkbox-label, #challenge-stage, label, span.mark').catch(() => null);
-              if (checkbox) {
-                console.log('  👉 [Cloudflare] Clicking Turnstile checkbox in frame...');
-                await checkbox.click().catch(() => {});
-              }
-            }
-          }
-
-          // Click Turnstile widget in main page
-          const cfBox = await page.$('#cf-turnstile, #turnstile-wrapper, [class*="cf-turnstile"], iframe[src*="cloudflare"]').catch(() => null);
-          if (cfBox) {
-            const box = await cfBox.boundingBox().catch(() => null);
-            if (box) {
-              await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2).catch(() => {});
-            }
-          }
-        } catch (e) { /* ignore */ }
-
-        await page.waitForTimeout(1000);
-      }
-    }
-
-    // Dismiss any introductory popups or cookie dialogs if present
-    const popupTextMatchers = ["stay here", "stay logged out", "dismiss", "ok", "close", "got it", "okay, let's go", "accept all"];
-    await page.evaluate((matchers) => {
-      const buttons = Array.from(document.querySelectorAll('button'));
-      for (const btn of buttons) {
-        const text = btn.innerText.trim().toLowerCase();
-        if (matchers.some(m => text === m || text.includes(m))) {
-          const rect = btn.getBoundingClientRect();
-          const style = window.getComputedStyle(btn);
-          if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
-            btn.click();
-          }
-        }
-      }
-    }, popupTextMatchers).catch(() => {});
+    // Run universal challenge detection & solver (Cloudflare Turnstile, Interstitials, Popups)
+    await solveAntiBotChallenge(page, { maxWaitMs: 30000, pollIntervalMs: 800 });
 
     await page.waitForSelector(provider.config.readySelector, { timeout: 30000 });
     console.log('Ready ✓\n');
   } catch (waitErr) {
     const currentUrl = page.url ? page.url() : 'unknown';
-    const currentTitle = await page.title().catch(() => 'unknown');
+    const currentTitle = page.title ? await page.title().catch(() => 'unknown') : 'unknown';
     await browser.close().catch(() => {});
 
     const envVar = `SESSION_${targetKey.toUpperCase()}_BASE64`;
@@ -167,5 +115,9 @@ export async function openAiSession(visible = false, options = {}) {
 export async function sendMessage(page, text, providerKey = null) {
   const key      = providerKey || _providerKey || readActiveKey();
   const provider = getProvider(key);
+
+  // If a challenge or popup appeared mid-session, automatically resolve it before typing
+  await solveAntiBotChallenge(page, { maxWaitMs: 15000, pollIntervalMs: 600 }).catch(() => {});
+
   return provider.sendMessage(page, text);
 }
