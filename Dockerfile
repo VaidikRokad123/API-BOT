@@ -4,6 +4,9 @@ FROM mcr.microsoft.com/playwright:v1.61.1-noble
 # Set working directory inside container
 WORKDIR /app
 
+# Install Xvfb for virtual X11 display server execution
+RUN apt-get update && apt-get install -y xvfb && rm -rf /var/lib/apt/lists/*
+
 # Skip redundant Puppeteer browser downloads during npm install
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_SKIP_DOWNLOAD=true
@@ -27,11 +30,11 @@ RUN mkdir -p backend/session backend/data
 
 # Set default environment variables
 ENV NODE_ENV=production
-ENV HEADLESS=true
+ENV HEADLESS=false
 ENV PORT=3000
 
 # Expose backend port
 EXPOSE 3000
 
-# Start server
-CMD ["npm", "start"]
+# Start server inside virtual X11 display framebuffer
+CMD ["xvfb-run", "-a", "--server-args=-screen 0 1280x900x24 -ac", "npm", "start"]
