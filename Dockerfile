@@ -36,5 +36,5 @@ ENV PORT=3000
 # Expose backend port
 EXPOSE 3000
 
-# Start server inside virtual X11 display framebuffer
-CMD ["xvfb-run", "-a", "--server-args=-screen 0 1280x900x24 -ac", "npm", "start"]
+# Start server directly inside virtual X11 display framebuffer
+CMD ["xvfb-run", "-a", "--server-args=-screen 0 1280x900x24 -ac", "node", "backend/server.js"]

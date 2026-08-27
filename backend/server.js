@@ -94,7 +94,7 @@ io.on('connection', (socket) => {
 
 // ─── Start ─────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log('\n  ╔══════════════════════════════════════════════════════╗');
   console.log('  ║                                                      ║');
   console.log('  ║    AI Agent — Web Server                     v1.0    ║');
