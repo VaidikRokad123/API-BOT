@@ -305,7 +305,9 @@ const COMMANDS = {
       }
       saveBrowserPref(engines[idx].key);
       console.log(`\n  ✓ Browser set to ${engines[idx].name}\n`);
-    },
+    }
+  },
+
   '/batch': {
     usage:   '/batch <file.yaml> [--hidden]',
     desc:    'Execute a batch of job applications defined in a YAML file',
