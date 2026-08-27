@@ -31,5 +31,5 @@ export async function sendMessage(page, text) {
     await page.keyboard.press('Enter');
   }
 
-  return waitForStable(page, RESPONSE, { afterCount: before, stableFor: 1500 });
+  return waitForStable(page, RESPONSE, { afterCount: before, stableFor: 300 });
 }

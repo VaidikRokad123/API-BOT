@@ -16,7 +16,7 @@ export function getProvider(key) {
 // MutationObserver-based DOM settle wait. Waits until DOM mutations stop
 // for `quietMs` or until `timeoutMs` cap is reached. Prevents false read-back
 // results from React/framework re-renders that briefly clear or rewrite text.
-export async function waitForDomSettle(page, { quietMs = 200, timeoutMs = 2000 } = {}) {
+export async function waitForDomSettle(page, { quietMs = 50, timeoutMs = 400 } = {}) {
   return page.evaluate(({ quiet, cap }) => new Promise(resolve => {
     let done = false;
     let timer = null;
@@ -40,7 +40,7 @@ export async function waitForDomSettle(page, { quietMs = 200, timeoutMs = 2000 }
     });
     schedule();
     setTimeout(finish, cap);
-  }), { quiet: quietMs, cap: timeoutMs }).catch(() => new Promise(resolve => setTimeout(resolve, quietMs)));
+  }), { quiet: quietMs, cap: timeoutMs }).catch(() => new Promise(resolve => setTimeout(resolve, 50)));
 }
 
 // Smart prompt truncation for web UI input limits. Preserves the beginning
@@ -77,7 +77,7 @@ function truncatePrompt(text, maxLength) {
 // Options:
 //   maxLength — truncate prompt before insertion if it exceeds this char count.
 //               Each provider passes its own limit via config.maxInputLength.
-export async function insertPrompt(page, selector, text, { maxLength = 20000 } = {}) {
+export async function insertPrompt(page, selector, text, { maxLength = 20000, settleMs = 50 } = {}) {
   const truncated = truncatePrompt(text, maxLength);
 
   const el = await page.$(selector);
@@ -92,7 +92,7 @@ export async function insertPrompt(page, selector, text, { maxLength = 20000 } =
 
   // Wait for DOM to settle (MutationObserver-based, not fixed timeout)
   // to let React/framework re-renders flush before read-back verification
-  await waitForDomSettle(page, { quietMs: 250, timeoutMs: 3000 });
+  await waitForDomSettle(page, { quietMs: settleMs, timeoutMs: 500 });
 
   // Verify the prompt actually landed
   const got = await page.evaluate(s => {
@@ -109,7 +109,7 @@ export async function insertPrompt(page, selector, text, { maxLength = 20000 } =
     await page.keyboard.up('Control');
     await page.keyboard.press('Backspace');
     await page.keyboard.type(truncated.replace(/\r?\n/g, ' '));
-    await waitForDomSettle(page, { quietMs: 250, timeoutMs: 3000 });
+    await waitForDomSettle(page, { quietMs: settleMs, timeoutMs: 500 });
   }
 }
 
@@ -125,8 +125,8 @@ export async function insertPrompt(page, selector, text, { maxLength = 20000 } =
 //   - Phase 2 caps stop-button resets: after 40 consecutive resets (~16s at
 //     400ms poll) we ignore the stop button and let stability win.
 export async function waitForStable(page, selector, {
-  poll         = 400,
-  stableFor    = 1200,
+  poll         = 100,
+  stableFor    = 300,
   maxWait      = 90_000,
   stopSelector = null,
   afterCount   = null,
@@ -205,7 +205,7 @@ export async function waitForStable(page, selector, {
     if (clickedContinue) {
       console.log('  [STABLE] Detected "Continue generating" button. Clicked to resume generation...');
       stableMs = 0; // Reset stability
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 400));
       continue;
     }
 

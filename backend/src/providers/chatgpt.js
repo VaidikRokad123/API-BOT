@@ -66,6 +66,6 @@ export async function sendMessage(page, text) {
   return waitForStable(page, RESPONSE, {
     afterCount:   before,
     stopSelector: 'button[data-testid*="stop"], button[aria-label*="Stop"], button[aria-label*="stop"], button:has(svg rect)',
-    stableFor:    1500,
+    stableFor:    300,
   });
 }

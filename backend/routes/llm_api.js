@@ -307,14 +307,52 @@ router.post('/api/v1/generate', async (req, res) => {
   }
 });
 
-// ─── GET /api/v1/sessions & DELETE /api/v1/sessions/:id ─────────────────────
-router.get('/api/v1/sessions', (req, res) => {
-  res.json({ success: true, sessions: listSessions() });
-});
+// ─── Session Management ─────────────────────────────────────────────────────
+// POST   /api/v1/sessions      — Create a new persistent session (opens browser once)
+// GET    /api/v1/sessions      — List all active sessions
+// DELETE /api/v1/sessions/:id  — Close and destroy a session
 
-router.delete('/api/v1/sessions/:id', async (req, res) => {
+const createSessionHandler = async (req, res) => {
+  try {
+    const { model, session_id } = req.body || {};
+
+    const { session, createdNew } = await getOrCreateSession({
+      sessionId: session_id,
+      model
+    });
+
+    res.json({
+      success: true,
+      created: createdNew,
+      session: {
+        id: session.id,
+        providerName: session.providerName,
+        providerKey: session.providerKey,
+        createdAt: new Date(session.createdAt).toISOString()
+      }
+    });
+  } catch (err) {
+    console.error('  ✗ Session create error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+const listSessionsHandler = (req, res) => {
+  res.json({ success: true, sessions: listSessions() });
+};
+
+const deleteSessionHandler = async (req, res) => {
   const closed = await closeSession(req.params.id);
   res.json({ success: closed, sessionId: req.params.id });
-});
+};
+
+router.post('/api/v1/sessions', createSessionHandler);
+router.get('/api/v1/sessions', listSessionsHandler);
+router.delete('/api/v1/sessions/:id', deleteSessionHandler);
+
+// Mirror under /v1/ for OpenAI-style consistency
+router.post('/v1/sessions', createSessionHandler);
+router.get('/v1/sessions', listSessionsHandler);
+router.delete('/v1/sessions/:id', deleteSessionHandler);
 
 export default router;
