@@ -24,11 +24,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.join(__dirname, '..');
 
-// Connect to MongoDB
-const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/gpt_auth';
-mongoose.connect(mongoUri)
-  .then(() => console.log('  ✓ Connected to MongoDB'))
-  .catch(err => console.error('  ✗ MongoDB connection error:', err));
+// Connect to MongoDB (optional for LLM API server)
+const mongoUri = process.env.MONGODB_URI;
+if (mongoUri) {
+  mongoose.connect(mongoUri)
+    .then(() => console.log('  ✓ Connected to MongoDB'))
+    .catch(err => console.warn('  ⚠️ MongoDB connection warning:', err.message));
+} else {
+  console.log('  ℹ️ MONGODB_URI not configured; running in API mode.');
+}
 
 const app = express();
 const server = createServer(app);

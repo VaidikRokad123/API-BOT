@@ -4,7 +4,7 @@ export const config = {
   key:           'chatgpt',
   name:          'ChatGPT',
   url:           'https://chatgpt.com',
-  readySelector: '#prompt-textarea',
+  readySelector: '#prompt-textarea, [data-testid="prompt-textarea"], div[contenteditable="true"], textarea[data-id="root"]',
   maxInputLength: 25000,
 };
 

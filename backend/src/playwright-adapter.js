@@ -179,6 +179,10 @@ export class PlaywrightPage {
     };
   }
 
+  async waitForTimeout(ms) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+
   // ariaSnapshot — the reason to pick this engine. Compact accessibility tree
   // (role + accessible name + state), far fewer tokens than raw DOM.
   async ariaSnapshot(options = {}) {

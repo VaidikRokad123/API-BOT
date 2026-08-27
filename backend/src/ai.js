@@ -89,18 +89,49 @@ export async function openAiSession(visible = false, options = {}) {
   await page.goto(provider.config.url);
 
   try {
-    const landingUrl = page.url();
+    let landingUrl = page.url();
     console.log(`[AI Navigated to: ${landingUrl}]`);
-    await page.waitForSelector(provider.config.readySelector, { timeout: 15000 });
-    console.log('Ready ✓\n');
-  } catch {
-    const currentUrl = page.url ? page.url() : 'unknown';
-    await browser.close().catch(() => {});
-    if (fs.existsSync(sFile)) {
-      try { fs.rmSync(sFile, { force: true }); } catch {}
+
+    // Check if Cloudflare Turnstile challenge is active
+    let pageTitle = await page.title().catch(() => '');
+    if (landingUrl.includes('__cf_chl_rt_tk') || pageTitle.includes('Just a moment') || pageTitle.includes('Cloudflare')) {
+      console.log('  ⏳ [Cloudflare] Turnstile challenge detected. Waiting for automated verification...');
+      for (let i = 0; i < 30; i++) {
+        await page.waitForTimeout(1000);
+        landingUrl = page.url();
+        pageTitle = await page.title().catch(() => '');
+        if (!landingUrl.includes('__cf_chl_rt_tk') && !pageTitle.includes('Just a moment') && !pageTitle.includes('Cloudflare')) {
+          console.log(`  ✓ [Cloudflare] Challenge passed. Redirected to: ${landingUrl}`);
+          break;
+        }
+      }
     }
+
+    // Dismiss any introductory popups or cookie dialogs if present
+    const popupTextMatchers = ["stay here", "stay logged out", "dismiss", "ok", "close", "got it", "okay, let's go", "accept all"];
+    await page.evaluate((matchers) => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      for (const btn of buttons) {
+        const text = btn.innerText.trim().toLowerCase();
+        if (matchers.some(m => text === m || text.includes(m))) {
+          const rect = btn.getBoundingClientRect();
+          const style = window.getComputedStyle(btn);
+          if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
+            btn.click();
+          }
+        }
+      }
+    }, popupTextMatchers).catch(() => {});
+
+    await page.waitForSelector(provider.config.readySelector, { timeout: 30000 });
+    console.log('Ready ✓\n');
+  } catch (waitErr) {
+    const currentUrl = page.url ? page.url() : 'unknown';
+    const currentTitle = await page.title().catch(() => 'unknown');
+    await browser.close().catch(() => {});
+
     const envVar = `SESSION_${targetKey.toUpperCase()}_BASE64`;
-    const errMsg = `Session expired or invalid for ${provider.config.name} (${targetKey}). Page URL: '${currentUrl}'. Please log in locally using 'npm run agent' and update the ${envVar} environment variable.`;
+    const errMsg = `Session expired or invalid for ${provider.config.name} (${targetKey}). Page URL: '${currentUrl}', Title: '${currentTitle}'. Error: ${waitErr.message}`;
     console.error(`  ✗ [Login Error] ${errMsg}`);
     throw new Error(errMsg);
   }
