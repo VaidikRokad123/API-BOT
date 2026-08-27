@@ -18,11 +18,36 @@ console.log('\n================================================================'
 console.log('  EXPORTED BASE64 SESSION ENVIRONMENT VARIABLES FOR RENDER/DOCKER');
 console.log('================================================================\n');
 
+function minifySession(rawJson) {
+  try {
+    const state = JSON.parse(rawJson);
+    if (!state || !Array.isArray(state.origins)) return rawJson;
+
+    const cleanedOrigins = state.origins.map(entry => ({
+      ...entry,
+      localStorage: (entry.localStorage || []).filter(item => {
+        const name = String(item.name || '');
+        // Strip heavy conversation history caches, model list caches, and statsig analytics logs
+        if (name.includes('cache/') || name.includes('history') || name.includes('conversation') || name.includes('statsig')) {
+          return false;
+        }
+        return true;
+      })
+    }));
+
+    return JSON.stringify({ cookies: state.cookies || [], origins: cleanedOrigins });
+  } catch {
+    return rawJson;
+  }
+}
+
 let count = 0;
 for (const [envVar, file] of Object.entries(files)) {
   const filePath = path.join(sessionDir, file);
   if (fs.existsSync(filePath)) {
-    const b64 = fs.readFileSync(filePath).toString('base64');
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const minified = minifySession(raw);
+    const b64 = Buffer.from(minified).toString('base64');
     console.log(`--- ${envVar} ---`);
     console.log(b64);
     console.log('\n');
@@ -33,6 +58,6 @@ for (const [envVar, file] of Object.entries(files)) {
 if (count === 0) {
   console.log('No session files found in backend/session/. Run `npm run agent` to log into providers first.\n');
 } else {
-  console.log(`Successfully generated ${count} session Base64 string(s).`);
+  console.log(`Successfully generated ${count} minified session Base64 string(s).`);
   console.log('Copy the Base64 value for each provider and paste it into Render Environment Variables.\n');
 }
