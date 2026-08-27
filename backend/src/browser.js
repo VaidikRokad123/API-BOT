@@ -4,7 +4,7 @@ import vanillaPuppeteer from 'puppeteer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { PlaywrightBrowser, PlaywrightPersistentBrowser } from './playwright-adapter.js';
 import { BROWSER_PROFILES_DIR } from './config.js';
 
@@ -168,15 +168,13 @@ const USER_AGENTS = {
  * @param {string} channel - 'chrome' | 'chromium' | 'msedge'
  * @returns {string} User-Agent string matching the platform + version
  */
-export function generateMatchedUserAgent(channel = 'chrome') {
+export function generateMatchedUserAgent() {
   try {
-    // Try to detect installed Chrome version from the executable
     const os = process.platform;
-    let version = '128.0.0.0'; // Reasonable modern default
+    let version = '128.0.0.0';
 
     if (os === 'win32') {
       try {
-        const { execSync } = require('child_process');
         const output = execSync(
           'reg query "HKLM\\SOFTWARE\\Google\\Chrome\\BLBeacon" /v version 2>nul',
           { encoding: 'utf8', timeout: 3000 }
@@ -192,7 +190,8 @@ export function generateMatchedUserAgent(channel = 'chrome') {
 
     return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`;
   } catch {
-    return USER_AGENTS.chrome; // Fallback to hardcoded
+    const platform = process.platform === 'linux' ? 'X11; Linux x86_64' : 'Windows NT 10.0; Win64; x64';
+    return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36`;
   }
 }
 
