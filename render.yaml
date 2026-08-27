@@ -9,7 +9,7 @@ services:
       - key: PORT
         value: "3000"
       - key: HEADLESS
-        value: "false"
+        value: "true"
       - key: NODE_ENV
         value: "production"
       - key: LLM_API_KEY
