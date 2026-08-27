@@ -362,16 +362,11 @@ OpenAI-compatible Chat Completion API.
 **Request Parameters:**
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `model` | string | No | Any model name or alias: `"chatgpt"`, `"gpt-4o"`, `"grok"`, `"gemini"`, `"perplexity"`, `"deepseek"`, or `"default"`. No restrictions. |
+| `model` | string | No | Model provider: `"chatgpt"`, `"grok"`, `"gemini"`, `"perplexity"`, `"deepseek"`, or `"default"`. |
 | `messages` | array | Yes | Array of message objects `[{ "role": "user"|"system"|"assistant", "content": "..." }]`. |
 | `stream` | boolean | No | If `true`, returns Server-Sent Events (`text/event-stream`). Default: `false`. |
-| `session_id` | string | No | Persistent session identifier. Can be passed via **Request Body** (`"session_id"`), **HTTP Header** (`x-session-id: my-session`), or **Query Param** (`?session_id=my-session`). Reuses warm tab context for low-latency queries. |
+| `session_id` | string | No | Persistent session identifier. Reuses warm tab context for low-latency follow-up queries. |
 | `keep_alive` | boolean | No | If `true`, preserves the browser session for future calls. Default: `false` (closes on completion unless `session_id` is set). |
-
-> 💡 **Flexible Session ID passing**: You can pass `session_id` in 3 convenient ways:
-> 1. JSON Body: `{"session_id": "my-user-session", "messages": [...]}`
-> 2. HTTP Header: `x-session-id: my-user-session`
-> 3. Query Param: `/v1/chat/completions?session_id=my-user-session`
 
 **Response Example:**
 ```json

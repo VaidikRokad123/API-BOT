@@ -1,4 +1,4 @@
-# Use official Playwright Docker image with pre-installed browsers (Ubuntu + Node.js + Chromium/Firefox)
+# Use official Playwright Docker image which includes Node.js and pre-installed browser dependencies
 FROM mcr.microsoft.com/playwright:v1.45.0-jammy
 
 # Set working directory inside container
@@ -21,7 +21,7 @@ RUN npm run build:frontend
 # Create session and data directories
 RUN mkdir -p backend/session backend/data
 
-# Environment variable defaults
+# Set default environment variables
 ENV NODE_ENV=production
 ENV HEADLESS=true
 ENV PORT=3000
@@ -29,5 +29,5 @@ ENV PORT=3000
 # Expose backend port
 EXPOSE 3000
 
-# Start Express server
+# Start server
 CMD ["npm", "start"]

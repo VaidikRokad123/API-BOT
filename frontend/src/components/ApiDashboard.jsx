@@ -8,7 +8,6 @@ export default function ApiDashboard({ ctx }) {
 
   // Playground state
   const [playgroundModel, setPlaygroundModel] = useState('chatgpt');
-  const [playgroundSessionId, setPlaygroundSessionId] = useState('');
   const [playgroundPrompt, setPlaygroundPrompt] = useState('Explain what an API is in 2 simple sentences.');
   const [playgroundSystem, setPlaygroundSystem] = useState('You are a helpful AI assistant.');
   const [playgroundLoading, setPlaygroundLoading] = useState(false);
@@ -55,22 +54,6 @@ export default function ApiDashboard({ ctx }) {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const handleCreateSession = async () => {
-    try {
-      const targetSessionId = playgroundSessionId.trim() || `session-${Date.now()}`;
-      const res = await ctx.API.rawPost('/v1/sessions', {
-        model: playgroundModel,
-        session_id: targetSessionId
-      });
-      if (res.error) throw new Error(res.error);
-      ctx.showToast(`Session ${res.session.id} created!`, 'success');
-      setPlaygroundSessionId(res.session.id);
-      fetchSessions();
-    } catch (err) {
-      ctx.showToast(err.message, 'error');
-    }
-  };
-
   const handlePlaygroundSubmit = async (e) => {
     if (e) e.preventDefault();
     if (!playgroundPrompt.trim() || playgroundLoading) return;
@@ -83,7 +66,6 @@ export default function ApiDashboard({ ctx }) {
     try {
       const body = {
         model: playgroundModel,
-        ...(playgroundSessionId.trim() ? { session_id: playgroundSessionId.trim() } : {}),
         messages: [
           ...(playgroundSystem ? [{ role: 'system', content: playgroundSystem }] : []),
           { role: 'user', content: playgroundPrompt }
@@ -97,11 +79,9 @@ export default function ApiDashboard({ ctx }) {
         setPlaygroundResponse(`Error: ${res.error.message || JSON.stringify(res.error)}`);
       } else if (res.choices && res.choices[0]?.message) {
         setPlaygroundResponse(res.choices[0].message.content);
-        if (res.session_id) setPlaygroundSessionId(res.session_id);
         setPlaygroundStats({
           timeMs: elapsedMs,
           model: res.model,
-          sessionId: res.session_id,
           promptTokens: res.usage?.prompt_tokens || 0,
           completionTokens: res.usage?.completion_tokens || 0,
           totalTokens: res.usage?.total_tokens || 0
@@ -134,10 +114,8 @@ client = OpenAI(
     default_headers={"ngrok-skip-browser-warning": "true"}
 )
 
-# Optional: reuse warm browser tab with session_id
 response = client.chat.completions.create(
     model="${playgroundModel}",
-    extra_body={"session_id": "${playgroundSessionId || 'my-custom-session'}"},
     messages=[
         {"role": "user", "content": "Explain quantum computing simply."}
     ]
@@ -147,11 +125,9 @@ print(response.choices[0].message.content)`;
 
   const curlSnippet = `curl ${remoteBaseUrl}/chat/completions \\
   -H "Content-Type: application/json" \\
-  -H "x-session-id: ${playgroundSessionId || 'my-custom-session'}" \\
   -H "ngrok-skip-browser-warning: true" \\
   -d '{
     "model": "${playgroundModel}",
-    "session_id": "${playgroundSessionId || 'my-custom-session'}",
     "messages": [{"role": "user", "content": "Hello world!"}]
   }'`;
 
@@ -221,29 +197,6 @@ print(response.choices[0].message.content)`;
           </div>
 
           <form onSubmit={handlePlaygroundSubmit} className="api-playground-form">
-            <div className="input-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label className="input-label" htmlFor="api-session-input">Session ID (Optional - Warm Tab Reuse)</label>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  style={{ fontSize: '11px', padding: '2px 8px' }}
-                  onClick={handleCreateSession}
-                  title="Pre-open browser tab for low-latency requests"
-                >
-                  ⚡ Pre-create Session
-                </button>
-              </div>
-              <input
-                id="api-session-input"
-                type="text"
-                className="input input-sm"
-                value={playgroundSessionId}
-                onChange={(e) => setPlaygroundSessionId(e.target.value)}
-                placeholder="e.g. my-custom-session (leave blank for auto)"
-              />
-            </div>
-
             <div className="input-group">
               <label className="input-label" htmlFor="api-system-input">System Prompt (Optional)</label>
               <input
@@ -372,67 +325,6 @@ print(response.choices[0].message.content)`;
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Active Sessions Table */}
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <div className="card-title">Active Warm Browser Sessions</div>
-            <div className="card-subtitle">Persistent browser tabs currently warm and ready for fast completions</div>
-          </div>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={fetchSessions}>
-            Refresh Sessions
-          </button>
-        </div>
-
-        {sessions.length === 0 ? (
-          <div className="empty-state" style={{ padding: '24px' }}>
-            <p>No active warm sessions. Enter a Session ID above or call <code>/v1/sessions</code> to pre-open a browser tab.</p>
-          </div>
-        ) : (
-          <div className="table-responsive">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Session ID</th>
-                  <th>Provider</th>
-                  <th>Status</th>
-                  <th>Created At</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map(s => (
-                  <tr key={s.id}>
-                    <td>
-                      <code style={{ fontSize: '12px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>
-                        {s.id}
-                      </code>
-                    </td>
-                    <td>{s.providerName} (<code>{s.providerKey}</code>)</td>
-                    <td>
-                      <span className={`badge ${s.isConnected ? 'badge-green' : 'badge-red'}`}>
-                        {s.isConnected ? '● Warm & Connected' : 'Disconnected'}
-                      </span>
-                    </td>
-                    <td>{new Date(s.createdAt).toLocaleTimeString()}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        style={{ color: '#ff6b6b' }}
-                        onClick={() => handleCloseSession(s.id)}
-                      >
-                        Close Session
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
     </div>
   );

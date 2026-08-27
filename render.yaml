@@ -2,7 +2,7 @@ services:
   - type: web
     name: gpt-llm-backend
     env: docker
-    plan: free # Free tier or Starter tier
+    plan: starter # Starter or Free tier
     region: oregon
     dockerfilePath: ./Dockerfile
     envVars:
@@ -14,19 +14,8 @@ services:
         value: "production"
       - key: LLM_API_KEY
         generateValue: true
-      # Optional: Pass logged-in session cookies as Base64 strings (Works on Free Tier!)
-      # - key: SESSION_CHATGPT_BASE64
-      #   sync: false
-      # - key: SESSION_GEMINI_BASE64
-      #   sync: false
-      # - key: SESSION_GROK_BASE64
-      #   sync: false
-      # - key: SESSION_PERPLEXITY_BASE64
-      #   sync: false
-      # - key: SESSION_DEEPSEEK_BASE64
-      #   sync: false
-    # Optional persistent disk (Requires paid Render Starter plan)
-    # disk:
-    #   name: session-storage
-    #   mountPath: /app/backend/session
-    #   sizeGB: 1
+    # Optional persistent disk on Render to store sessions across restarts
+    disk:
+      name: session-storage
+      mountPath: /app/backend/session
+      sizeGB: 1
