@@ -14,13 +14,43 @@ export function readActiveKey() {
   }
 }
 
+import path from 'path';
+
+function ensureSessionFromEnv(targetKey, sFile) {
+  if (fs.existsSync(sFile)) return;
+
+  const envKeyBase64 = `SESSION_${targetKey.toUpperCase()}_BASE64`;
+  const envKeyJson = `SESSION_${targetKey.toUpperCase()}_JSON`;
+
+  const base64Data = process.env[envKeyBase64];
+  const jsonData = process.env[envKeyJson];
+
+  try {
+    const dir = path.dirname(sFile);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    if (base64Data) {
+      const decoded = Buffer.from(base64Data, 'base64').toString('utf8');
+      fs.writeFileSync(sFile, decoded, 'utf8');
+      console.log(`  ✓ Restored ${targetKey} session from ${envKeyBase64} env var.`);
+    } else if (jsonData) {
+      fs.writeFileSync(sFile, jsonData, 'utf8');
+      console.log(`  ✓ Restored ${targetKey} session from ${envKeyJson} env var.`);
+    }
+  } catch (err) {
+    console.error(`  ✗ Error restoring ${targetKey} session from env:`, err.message);
+  }
+}
+
 export async function openAiSession(visible = false, options = {}) {
   const targetKey = options.provider || readActiveKey();
   const provider = getProvider(targetKey);
   const sFile    = sessionFile(targetKey);
 
+  ensureSessionFromEnv(targetKey, sFile);
+
   if (!fs.existsSync(sFile)) {
-    throw new Error(`No session for ${provider.config.name} (${targetKey}). Please login to ${provider.config.name} first.`);
+    throw new Error(`No session for ${provider.config.name} (${targetKey}). Please login to ${provider.config.name} first or set SESSION_${targetKey.toUpperCase()}_BASE64 environment variable.`);
   }
 
   _providerKey = targetKey;

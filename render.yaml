@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: gpt-llm-backend
+    env: docker
+    plan: starter # Starter or Free tier
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: HEADLESS
+        value: "true"
+      - key: NODE_ENV
+        value: "production"
+      - key: LLM_API_KEY
+        generateValue: true
+    # Optional persistent disk on Render to store sessions across restarts
+    disk:
+      name: session-storage
+      mountPath: /app/backend/session
+      sizeGB: 1

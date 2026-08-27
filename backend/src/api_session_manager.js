@@ -29,6 +29,27 @@ export function resolveProviderKey(modelName) {
 }
 
 /**
+ * Safe browser connection check helper
+ */
+export function isSessionConnected(session) {
+  if (!session) return false;
+  try {
+    if (typeof session.browser?.isConnected === 'function') {
+      return session.browser.isConnected();
+    }
+    if (typeof session.browser?.browser === 'function' && typeof session.browser.browser()?.isConnected === 'function') {
+      return session.browser.browser().isConnected();
+    }
+    if (session.page && typeof session.page.isClosed === 'function' && !session.page.isClosed()) {
+      return true;
+    }
+    return Boolean(session.isConnected || session.active || (session.browser && typeof session.browser.close === 'function'));
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
  * Gets an existing session or creates a new browser session.
  */
 export async function getOrCreateSession({ sessionId = null, model = null } = {}) {
@@ -39,7 +60,7 @@ export async function getOrCreateSession({ sessionId = null, model = null } = {}
     const session = activeApiSessions.get(sessionId);
     
     // Check if browser context is still connected
-    if (session.browser && session.browser.isConnected()) {
+    if (isSessionConnected(session)) {
       session.lastUsed = Date.now();
       resetSessionTimer(sessionId);
       return { session, createdNew: false };
@@ -101,8 +122,12 @@ export async function closeSession(sessionId) {
   }
 
   try {
-    if (session.browser && session.browser.isConnected()) {
-      await session.browser.close().catch(() => {});
+    if (isSessionConnected(session)) {
+      if (typeof session.browser?.close === 'function') {
+        await session.browser.close().catch(() => {});
+      } else if (typeof session.page?.close === 'function') {
+        await session.page.close().catch(() => {});
+      }
     }
   } catch (err) {
     console.error(`[API Session Manager] Error closing browser for ${sessionId}:`, err.message);
@@ -124,7 +149,7 @@ export function listSessions() {
       providerKey: s.providerKey,
       createdAt: new Date(s.createdAt).toISOString(),
       lastUsed: new Date(s.lastUsed).toISOString(),
-      isConnected: s.browser ? s.browser.isConnected() : false
+      isConnected: isSessionConnected(s)
     });
   }
   return list;

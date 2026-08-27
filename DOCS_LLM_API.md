@@ -11,6 +11,7 @@ You can run this backend locally and use it as a drop-in replacement for OpenAI 
 - 🔌 **OpenAI Compatible Endpoint**: Full support for `/v1/chat/completions`, `/v1/models`, and `/v1/completions`.
 - 🤖 **Multi-Provider Support**: Choose dynamically between `chatgpt`, `grok`, `gemini`, `perplexity`, or `deepseek`.
 - ⚡ **Persistent Session Pooling**: Fast multi-turn conversations by maintaining warm browser tabs via `session_id`.
+- 🔄 **Session Lifecycle Management**: Create a session once, send unlimited requests, close when done — no browser reopening.
 - 🌊 **Streaming SSE Support**: Supports `stream: true` for real-time frontend streaming interfaces.
 - 🔑 **Optional API Key Security**: Secure your endpoint with `LLM_API_KEY` or leave it open for local network use.
 - 🚀 **Simple REST Endpoint**: Quick `/api/v1/generate` endpoint for rapid single-prompt completions.
@@ -94,7 +95,88 @@ print(response.choices[0].message.content)
 
 ---
 
-### 2. Python (Persistent Multi-Turn Chat Session)
+### 2. Session Lifecycle Workflow (Create → Use → Destroy)
+
+The recommended workflow to avoid opening a new browser on every API call:
+
+**Step 1: Create a session once (opens browser)**
+```bash
+curl -X POST http://localhost:3000/api/v1/sessions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "chatgpt",
+    "session_id": "my-session"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "created": true,
+  "session": {
+    "id": "my-session",
+    "providerName": "ChatGPT",
+    "providerKey": "chatgpt",
+    "createdAt": "2026-08-27T00:00:00.000Z"
+  }
+}
+```
+
+**Step 2: Send as many requests as you want (no new browser)**
+```bash
+curl http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "chatgpt",
+    "session_id": "my-session",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+**Step 3: Close the session when done (frees browser resources)**
+```bash
+curl -X DELETE http://localhost:3000/api/v1/sessions/my-session
+```
+
+> 💡 **Without `session_id`**, every API call opens a new browser and closes it after — useful for one-off calls. **With `session_id`**, you reuse the same browser tab for all calls.
+
+---
+
+### 3. Python — Full Session Lifecycle Example
+
+```python
+import requests
+
+BASE = "http://localhost:3000"
+HEADERS = {"Content-Type": "application/json"}
+SESSION_ID = "my-python-session"
+
+# 1. Create session (browser opens once)
+res = requests.post(f"{BASE}/api/v1/sessions", json={
+    "model": "chatgpt",
+    "session_id": SESSION_ID
+}, headers=HEADERS).json()
+print("Session created:", res["session"]["id"])
+
+# 2. Send multiple messages (same browser, no reopening)
+for q in ["What is Python?", "Give me a code example", "Now explain decorators"]:
+    resp = requests.post(f"{BASE}/v1/chat/completions", json={
+        "model": "chatgpt",
+        "session_id": SESSION_ID,
+        "messages": [{"role": "user", "content": q}]
+    }, headers=HEADERS).json()
+    print(f"Q: {q}")
+    print(f"A: {resp['choices'][0]['message']['content'][:200]}...\n")
+
+# 3. Close session when done
+requests.delete(f"{BASE}/api/v1/sessions/{SESSION_ID}", headers=HEADERS)
+print("Session closed.")
+```
+
+---
+
+### 4. Python (Persistent Multi-Turn Chat Session)
 
 To preserve context and speed up follow-up requests, reuse a `session_id`:
 
@@ -342,7 +424,42 @@ Simple REST endpoint for straightforward completions.
 
 ---
 
-### 4. `GET /api/v1/sessions`
+### 4. Session Management Endpoints
+
+Manage persistent browser sessions to avoid opening a new browser on every API call.
+
+#### `POST /api/v1/sessions` — Create a Session
+
+Opens a browser session once. Returns a `session_id` to reuse in all subsequent API calls.
+
+**Request Parameters:**
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `model` | string | No | Provider to use: `"chatgpt"`, `"grok"`, `"gemini"`, `"perplexity"`, `"deepseek"`. Defaults to active provider. |
+| `session_id` | string | No | Custom session ID. If omitted, one is auto-generated. |
+
+**Request:**
+```bash
+curl -X POST http://localhost:3000/api/v1/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "chatgpt", "session_id": "my-session"}'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "created": true,
+  "session": {
+    "id": "my-session",
+    "providerName": "ChatGPT",
+    "providerKey": "chatgpt",
+    "createdAt": "2026-08-27T00:00:00.000Z"
+  }
+}
+```
+
+#### `GET /api/v1/sessions` — List Active Sessions
 
 Lists all currently active persistent browser API sessions.
 
@@ -352,34 +469,36 @@ Lists all currently active persistent browser API sessions.
   "success": true,
   "sessions": [
     {
-      "id": "chat-user-1",
+      "id": "my-session",
       "providerName": "ChatGPT",
       "providerKey": "chatgpt",
-      "createdAt": "2026-08-18T14:00:00.000Z",
-      "lastUsed": "2026-08-18T14:05:00.000Z",
+      "createdAt": "2026-08-27T00:00:00.000Z",
+      "lastUsed": "2026-08-27T00:05:00.000Z",
       "isConnected": true
     }
   ]
 }
 ```
 
----
+#### `DELETE /api/v1/sessions/:sessionId` — Close a Session
 
-### 5. `DELETE /api/v1/sessions/:sessionId`
-
-Closes and terminates a persistent browser API session.
+Closes and terminates a persistent browser session, freeing resources.
 
 **Response:**
 ```json
 {
   "success": true,
-  "sessionId": "chat-user-1"
+  "sessionId": "my-session"
 }
 ```
 
+> 💡 **Idle Timeout**: Sessions auto-close after 15 minutes of inactivity. You don't need to manually close them, but it's recommended to free resources when done.
+
+> 💡 **All session endpoints are also available under `/v1/sessions`** for OpenAI-style URL consistency.
+
 ---
 
-### 6. `POST /api/jobs/search` (Job Finder & Firecrawl Engine)
+### 5. `POST /api/jobs/search` (Job Finder & Firecrawl Engine)
 
 Finds jobs using local/cloud **Firecrawl**, matches them against your resume (`backend/data/profile.json`), and filters by role, experience, location, and min CTC.
 
@@ -423,7 +542,7 @@ curl https://karine-trisomic-karima.ngrok-free.dev/api/jobs/search \
 
 ---
 
-### 7. `POST /api/jobs/apply`
+### 6. `POST /api/jobs/apply`
 
 Triggers the AI auto-application flow for a specific job posting URL.
 
@@ -457,3 +576,46 @@ If `LLM_API_KEY` is set, all client requests must include the header:
 > ⚠️ **SECURITY WARNING FOR NGROK USERS**: When exposing your local LLM API over public ngrok tunnels (`https://karine-trisomic-karima.ngrok-free.dev`), anyone with your public URL could potentially trigger requests on your logged-in browser accounts.
 > 
 > **Always set `LLM_API_KEY=your_secret_key` in `backend/.env` when hosting over ngrok to protect your endpoint with authentication.**
+
+---
+
+## 🐳 Docker & Render Cloud Deployment
+
+You can host this backend in Docker and deploy to cloud platforms like **Render.com**.
+
+### 1. Build and Run via Docker locally
+```bash
+# Build the Docker image
+docker build -t gpt-llm-backend .
+
+# Run container (headless mode enabled by default in container)
+docker run -d -p 3000:3000 \
+  -e HEADLESS=true \
+  -e LLM_API_KEY=your_secret_key \
+  --name gpt-llm-api \
+  gpt-llm-backend
+```
+
+### 2. Deploying on Render.com
+
+1. Push your code repository to **GitHub** / **GitLab**.
+2. Go to **Render Dashboard** -> **New** -> **Web Service**.
+3. Select **Build and deploy from a Git repository**.
+4. Choose **Docker** environment. Render will automatically detect `Dockerfile` and `render.yaml`.
+5. Set Environment Variables in Render Dashboard:
+   - `HEADLESS`: `true`
+   - `PORT`: `3000`
+   - `LLM_API_KEY`: `your_secret_key`
+6. (Optional) Attach a **Render Persistent Disk** mounted at `/app/backend/session` to persist session cookies across restarts.
+
+### 3. Session State in Cloud / Render
+
+Since cloud containers reset disk state on redeployment, you have two options for session data on Render:
+
+- **Option A (Render Disk)**: Attach a 1GB persistent disk at `/app/backend/session`.
+- **Option B (Base64 Environment Variable)**: Convert your local session file to Base64 and set environment variable `SESSION_CHATGPT_BASE64` or `SESSION_GEMINI_BASE64`:
+  ```bash
+  # Convert local session file to base64 (Windows PowerShell)
+  [Convert]::ToBase64String([System.IO.File]::ReadAllBytes("backend\session\session.json"))
+  ```
+  Set `SESSION_CHATGPT_BASE64=<paste_base64>` in Render Environment Variables. The backend will automatically restore `session.json` on startup!

@@ -237,6 +237,10 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
   }
 
   // Playwright with persistent profile — keeps Google OAuth cookies between apply runs.
+  const isServerEnv = process.env.HEADLESS === 'true' || process.env.NODE_ENV === 'production' || (process.platform === 'linux' && !process.env.DISPLAY);
+  const useHeadless = process.env.HEADLESS === 'false' ? false : (visible ? false : isServerEnv);
+  const browserChannel = process.env.BROWSER_CHANNEL || (isServerEnv ? undefined : 'chrome');
+
   if (options.persistentProfile && pref === 'playwright') {
     let chromium;
     try {
@@ -246,44 +250,45 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
     }
     const profileDir = path.join(BROWSER_PROFILES_DIR, profileSuffix || 'default');
     if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true });
-    const context = await chromium.launchPersistentContext(profileDir, {
-      headless: false,
-      channel: 'chrome',
+    const launchOptions = {
+      headless: useHeadless,
       ignoreDefaultArgs: ['--enable-automation'],
       args: [
         '--disable-blink-features=AutomationControlled',
         '--disable-infobars',
         '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
         '--window-size=1280,900',
       ],
       viewport: { width: 1280, height: 900 },
       userAgent: MATCHED_UA,
-    });
+    };
+    if (browserChannel) launchOptions.channel = browserChannel;
+    const context = await chromium.launchPersistentContext(profileDir, launchOptions);
     return new PlaywrightPersistentBrowser(context);
   }
 
-  // Everything that isn't a real-browser connection runs on Playwright — the only
-  // bundled engine. MUST be headful with the real Chrome channel: headless bundled
-  // Chromium trips Cloudflare on ChatGPT/providers (challenge page → readySelector
-  // never appears → openAiSession stalls). `visible`/`profileSuffix` are unused here.
   let chromium;
   try {
     ({ chromium } = await import('playwright'));
   } catch {
     throw new Error('Playwright not installed. Run:\n  npm install playwright\n  npx playwright install chromium');
   }
-  const pwBrowser = await chromium.launch({
-    headless: false,
-    channel: 'chrome',
+  const launchOptions = {
+    headless: useHeadless,
     ignoreDefaultArgs: ['--enable-automation'],
     args: [
       '--disable-blink-features=AutomationControlled',
       '--disable-infobars',
       '--no-sandbox',
       '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
       '--window-size=1280,900',
     ],
-  });
+  };
+  if (browserChannel) launchOptions.channel = browserChannel;
+  const pwBrowser = await chromium.launch(launchOptions);
   return new PlaywrightBrowser(pwBrowser, { userAgent: MATCHED_UA });
 }
 

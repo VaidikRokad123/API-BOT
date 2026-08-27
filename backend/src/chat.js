@@ -68,7 +68,8 @@ export async function chat(visible = true, externalRl = null) {
         } catch (e) {
           process.stdout.write('\x1B[2K\r');
           // If the browser/page was closed, bail to the menu instead of looping errors.
-          if (!browser.isConnected() || /closed/i.test(e.message)) {
+          const isConn = typeof browser?.isConnected === 'function' ? browser.isConnected() : Boolean(browser);
+          if (!isConn || /closed/i.test(e.message)) {
             console.error('\n  Browser was closed — returning to main menu.\n');
             await browser.close().catch(() => {});
             resolve();
