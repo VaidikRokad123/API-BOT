@@ -263,6 +263,19 @@ export class PlaywrightBrowser {
     if (storageState) opts.storageState = storageState;
     if (recordVideo) opts.recordVideo = recordVideo;
     this.context = await this.browser.newContext(opts);
+
+    // Inject stealth evasions to mask navigator.webdriver and headless flags for Cloudflare Turnstile
+    await this.context.addInitScript(() => {
+      try {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        if (!window.chrome) {
+          window.chrome = { runtime: {}, loadTimes: () => {}, csi: () => {}, app: {} };
+        }
+      } catch (e) { /* ignore */ }
+    });
+
     return this.context;
   }
 

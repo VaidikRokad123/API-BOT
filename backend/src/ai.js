@@ -89,15 +89,18 @@ export async function openAiSession(visible = false, options = {}) {
   await page.goto(provider.config.url);
 
   try {
+    const landingUrl = page.url();
+    console.log(`[AI Navigated to: ${landingUrl}]`);
     await page.waitForSelector(provider.config.readySelector, { timeout: 15000 });
     console.log('Ready ✓\n');
   } catch {
+    const currentUrl = page.url ? page.url() : 'unknown';
     await browser.close().catch(() => {});
     if (fs.existsSync(sFile)) {
       try { fs.rmSync(sFile, { force: true }); } catch {}
     }
     const envVar = `SESSION_${targetKey.toUpperCase()}_BASE64`;
-    const errMsg = `Session expired or invalid for ${provider.config.name} (${targetKey}). Please log in locally using 'npm run agent' and update the ${envVar} environment variable.`;
+    const errMsg = `Session expired or invalid for ${provider.config.name} (${targetKey}). Page URL: '${currentUrl}'. Please log in locally using 'npm run agent' and update the ${envVar} environment variable.`;
     console.error(`  ✗ [Login Error] ${errMsg}`);
     throw new Error(errMsg);
   }
