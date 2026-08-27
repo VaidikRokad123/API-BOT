@@ -1,8 +1,12 @@
-# Use official Playwright Docker image which includes Node.js and pre-installed browser dependencies
-FROM mcr.microsoft.com/playwright:v1.45.0-jammy
+# Use official Playwright Docker image with pre-installed browsers & dependencies
+FROM mcr.microsoft.com/playwright:v1.50.0-noble
 
 # Set working directory inside container
 WORKDIR /app
+
+# Skip redundant Puppeteer browser downloads during npm install
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Copy package files for dependency installation and caching
 COPY package*.json ./
