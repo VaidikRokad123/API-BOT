@@ -21,6 +21,7 @@ export default function Settings({ ctx }) {
   const [activeAiEngine, setActiveAiEngine] = useState('');
   const [loginProvider, setLoginProvider] = useState('');
   const [backendUrl, setBackendUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [loginMsg, setLoginMsg] = useState({ text: '', type: '' });
   const [openingBrowser, setOpeningBrowser] = useState(false);
   const [savingSession, setSavingSession] = useState(false);
@@ -60,6 +61,7 @@ export default function Settings({ ctx }) {
   useEffect(() => {
     loadSettingsData();
     setBackendUrl(localStorage.getItem('BACKEND_URL') || '');
+    setApiKey(localStorage.getItem('LLM_API_KEY') || '');
   }, []);
 
   const handleSwitchProvider = async (key) => {
@@ -115,6 +117,16 @@ export default function Settings({ ctx }) {
     localStorage.removeItem('BACKEND_URL');
     ctx.showToast('Reset to default — reloading…', 'info');
     setTimeout(() => window.location.reload(), 1200);
+  };
+
+  const handleSaveApiKey = () => {
+    if (apiKey.trim()) {
+      localStorage.setItem('LLM_API_KEY', apiKey.trim());
+      ctx.showToast('API Key saved!', 'success');
+    } else {
+      localStorage.removeItem('LLM_API_KEY');
+      ctx.showToast('API Key cleared', 'info');
+    }
   };
 
   const handleStartLogin = async () => {
@@ -397,20 +409,34 @@ export default function Settings({ ctx }) {
         </div>
       </SettingsCard>
 
-      <SettingsCard title="Backend Connection" subtitle="Point the UI at your API when hosting the SPA separately (e.g. ngrok).">
-        <div className="flex-row">
+      <SettingsCard title="Backend Connection & API Security" subtitle="Configure your API key and connection when hosting remotely.">
+        <div className="flex-row" style={{ marginBottom: 12 }}>
           <div className="input-group">
-            <label className="input-label">Backend URL</label>
+            <label className="input-label">Backend URL (leave empty for same-origin)</label>
             <input
               type="text"
               className="input"
               value={backendUrl}
               onChange={(e) => setBackendUrl(e.target.value)}
-              placeholder="https://your-tunnel.ngrok-free.app"
+              placeholder="https://my-local-llm-api.onrender.com"
             />
           </div>
           <button type="button" className="btn btn-primary" onClick={handleSaveBackendUrl}>Save</button>
           <button type="button" className="btn btn-secondary" onClick={handleClearBackendUrl}>Reset</button>
+        </div>
+
+        <div className="flex-row">
+          <div className="input-group">
+            <label className="input-label">LLM API Key (Optional — matches LLM_API_KEY env var)</label>
+            <input
+              type="password"
+              className="input"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Enter your secret API key..."
+            />
+          </div>
+          <button type="button" className="btn btn-primary" onClick={handleSaveApiKey}>Save Key</button>
         </div>
       </SettingsCard>
 

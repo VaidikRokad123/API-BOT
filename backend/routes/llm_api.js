@@ -12,10 +12,10 @@ import {
 
 const router = Router();
 
-// Optional API key validation middleware
+// Optional API key validation middleware for public /v1 and /api/v1 API endpoints
 function authMiddleware(req, res, next) {
   const apiKey = process.env.LLM_API_KEY || process.env.API_KEY;
-  if (!apiKey) return next(); // No key configured = public local API
+  if (!apiKey) return next(); // No key configured = public API
 
   const reqKey = req.headers['x-api-key'] || (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : null);
   if (reqKey !== apiKey) {
@@ -31,7 +31,8 @@ function authMiddleware(req, res, next) {
   next();
 }
 
-router.use(authMiddleware);
+// Apply authMiddleware to API endpoints only
+router.use(['/v1', '/api/v1'], authMiddleware);
 
 // Helper to format messages array into single prompt string
 function formatMessagesToPrompt(messages) {

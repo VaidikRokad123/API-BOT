@@ -32,8 +32,8 @@ if command -v fluxbox >/dev/null 2>&1; then
   fluxbox >/dev/null 2>&1 &
 fi
 
-# 3. Start noVNC Web Remote GUI if ENABLE_VNC is set
-if [ "${ENABLE_VNC}" = "true" ] || [ "${ENABLE_VNC}" = "1" ]; then
+# 3. Start noVNC Web Remote GUI (enabled by default in container)
+if [ "${ENABLE_VNC}" != "false" ]; then
   VNC_PORT=${VNC_PORT:-6080}
   echo "==> Starting x11vnc and noVNC on port ${VNC_PORT}..."
   x11vnc -display ${DISPLAY} -forever -shared -nopw -rfbport 5900 -quiet &

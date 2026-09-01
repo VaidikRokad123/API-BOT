@@ -78,11 +78,18 @@ export default function App() {
 
   const BACKEND_URL = localStorage.getItem('BACKEND_URL') || import.meta.env.VITE_BACKEND_URL || '';
 
+  const getAuthHeaders = () => {
+    const key = localStorage.getItem('LLM_API_KEY') || localStorage.getItem('API_KEY');
+    const headers = { 'ngrok-skip-browser-warning': 'true' };
+    if (key) headers['Authorization'] = `Bearer ${key.trim()}`;
+    return headers;
+  };
+
   const API = {
     backendUrl: BACKEND_URL,
     async get(url) {
       const res = await fetch(`${BACKEND_URL}/api${url}`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: getAuthHeaders()
       });
       const data = await res.json().catch(() => ({ error: 'Invalid server response' }));
       if (!res.ok && data.error) {
@@ -96,7 +103,7 @@ export default function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
+          ...getAuthHeaders()
         },
         body: JSON.stringify(body)
       });
@@ -109,7 +116,7 @@ export default function App() {
     },
     async rawGet(endpoint) {
       const res = await fetch(`${BACKEND_URL}${endpoint}`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: getAuthHeaders()
       });
       return res.json().catch(() => ({ error: 'Invalid server response' }));
     },
@@ -118,7 +125,7 @@ export default function App() {
         method: customHeaders.method || 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
+          ...getAuthHeaders(),
           ...customHeaders
         },
         body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined
