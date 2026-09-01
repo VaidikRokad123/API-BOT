@@ -249,7 +249,7 @@ router.get('/environment', (req, res) => {
   const hasDisplay = !!process.env.DISPLAY;
   const proxyServer = process.env.PROXY_SERVER || process.env.HTTP_PROXY || process.env.HTTPS_PROXY || null;
   const vncPort = process.env.VNC_PORT || 6080;
-  const enableVnc = process.env.ENABLE_VNC === 'true';
+  const enableVnc = process.env.ENABLE_VNC === 'true' || isDocker;
 
   res.json({
     isDocker,
@@ -258,7 +258,8 @@ router.get('/environment', (req, res) => {
     hasProxy: !!proxyServer,
     proxyConfigured: proxyServer ? proxyServer.replace(/:[^:@]+@/, ':****@') : null,
     enableVnc,
-    vncPort: enableVnc ? vncPort : null
+    vncPort: enableVnc ? vncPort : null,
+    vncPath: '/novnc/vnc.html?autoconnect=true&resize=remote'
   });
 });
 

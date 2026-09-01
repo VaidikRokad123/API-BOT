@@ -49,8 +49,40 @@ const io = new SocketIO(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }
 });
 
+import { createProxyMiddleware } from 'http-proxy-middleware';
+
 // ─── Middleware ─────────────────────────────────────────────────────────────
 app.use(cors());
+
+// Virtual Port / Reverse Proxy for noVNC & Websockify over the main port
+const vncInternalPort = process.env.VNC_INTERNAL_PORT || 6080;
+const vncProxy = createProxyMiddleware({
+  target: `http://127.0.0.1:${vncInternalPort}`,
+  ws: true,
+  changeOrigin: true,
+  pathRewrite: {
+    '^/novnc': '', // rewrite /novnc/vnc.html -> /vnc.html
+  },
+  on: {
+    error: (err, req, res) => {
+      if (res && res.writeHead && !res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'text/plain' });
+        res.end('Remote browser GUI (noVNC) is starting or not available.');
+      }
+    },
+  },
+});
+
+app.use('/novnc', vncProxy);
+app.use('/websockify', vncProxy);
+
+// Forward WebSocket upgrades for /websockify and /novnc to the internal noVNC proxy
+server.on('upgrade', (req, socket, head) => {
+  if (req.url && (req.url.startsWith('/websockify') || req.url.startsWith('/novnc'))) {
+    vncProxy.upgrade(req, socket, head);
+  }
+});
+
 app.use(express.json());
 
 // Serve frontend static files

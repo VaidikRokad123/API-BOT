@@ -208,7 +208,7 @@ export default function Settings({ ctx }) {
   };
 
   const vncUrl = envInfo?.enableVnc
-    ? `${window.location.protocol}//${window.location.hostname}:${envInfo.vncPort || 6080}/vnc.html`
+    ? (envInfo.vncPath || '/novnc/vnc.html?autoconnect=true&resize=remote')
     : null;
 
   return (
