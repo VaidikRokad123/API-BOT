@@ -10,7 +10,10 @@ echo "========================================================"
 echo "  AI Automation Agent — Docker Container Initializing   "
 echo "========================================================"
 
-# 1. Start Xvfb Virtual Framebuffer Display
+# 1. Clean up any stale Xvfb lock files from previous crashes/restarts
+rm -f /tmp/.X${DISPLAY#:}-lock /tmp/.X11-unix/X${DISPLAY#:}
+
+# 2. Start Xvfb Virtual Framebuffer Display
 echo "==> Starting Xvfb on display ${DISPLAY} (${SCREEN_WIDTH}x${SCREEN_HEIGHT}x${SCREEN_DEPTH})..."
 Xvfb ${DISPLAY} -screen 0 ${SCREEN_WIDTH}x${SCREEN_HEIGHT}x${SCREEN_DEPTH} -ac +extension GLX +render -noreset &
 XVFB_PID=$!

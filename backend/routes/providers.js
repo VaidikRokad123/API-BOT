@@ -136,6 +136,12 @@ router.post('/login/save', async (req, res) => {
     global.__loginPage = null;
     global.__loginProvider = null;
 
+    res.json({ success: true, message: `Session saved for ${prov.config.name}`, provider: providerKey });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Import session from Base64 or JSON
 router.post('/sessions/import', (req, res) => {
   try {
