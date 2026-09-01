@@ -10,6 +10,7 @@
     "start": "npm run serve --prefix backend",
     "agent": "node backend/agent.js",
     "export-sessions": "node backend/export_sessions.js",
+    "test:stealth": "node backend/test_solver.js",
     "test": "npm run test --prefix backend"
   },
   "devDependencies": {

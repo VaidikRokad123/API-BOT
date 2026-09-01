@@ -619,3 +619,51 @@ Since cloud containers reset disk state on redeployment, you have two options fo
   [Convert]::ToBase64String([System.IO.File]::ReadAllBytes("backend\session\session.json"))
   ```
   Set `SESSION_CHATGPT_BASE64=<paste_base64>` in Render Environment Variables. The backend will automatically restore `session.json` on startup!
+
+---
+
+## 🛡️ Anti-Bot & Cloudflare Turnstile Solver API
+
+You can use the built-in stealth engine to navigate to any protected website, automatically solve Cloudflare Turnstile / anti-bot challenges, and extract the page status, title, cookies, or screenshots.
+
+### `POST /v1/solve` or `/api/v1/solve`
+
+#### Request Body:
+```json
+{
+  "url": "https://nowsecure.nl",
+  "timeout": 30000,
+  "waitForSelector": "#target-element",
+  "takeScreenshot": true,
+  "extractHtml": false
+}
+```
+
+#### Example cURL:
+```bash
+curl -X POST "http://localhost:3000/v1/solve" \
+  -H "Authorization: Bearer your_secret_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://nowsecure.nl",
+    "takeScreenshot": true
+  }'
+```
+
+#### Example Response:
+```json
+{
+  "success": true,
+  "url": "https://nowsecure.nl",
+  "finalUrl": "https://nowsecure.nl/",
+  "title": "nowSecure",
+  "challengeEncountered": true,
+  "challengeType": "cloudflare_turnstile",
+  "solved": true,
+  "timeElapsedMs": 2420,
+  "cookiesCount": 4,
+  "cookies": [ ... ],
+  "screenshot": "data:image/png;base64,..."
+}
+```
+
