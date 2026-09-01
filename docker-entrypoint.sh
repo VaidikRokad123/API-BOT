@@ -2,9 +2,10 @@
 set -e
 
 export DISPLAY=${DISPLAY:-:99}
-export SCREEN_WIDTH=${SCREEN_WIDTH:-1280}
-export SCREEN_HEIGHT=${SCREEN_HEIGHT:-900}
-export SCREEN_DEPTH=${SCREEN_DEPTH:-24}
+export SCREEN_WIDTH=${SCREEN_WIDTH:-1024}
+export SCREEN_HEIGHT=${SCREEN_HEIGHT:-768}
+export SCREEN_DEPTH=${SCREEN_DEPTH:-16}
+export NODE_OPTIONS="--max-old-space-size=192 ${NODE_OPTIONS:-}"
 
 echo "========================================================"
 echo "  AI Automation Agent — Docker Container Initializing   "

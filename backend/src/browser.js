@@ -353,7 +353,7 @@ export async function newStealthContext(browser, storageStatePath = null) {
     await browser.initContext({
       storageState,
       userAgent: MATCHED_UA,
-      viewport: { width: 1280, height: 900 },
+      viewport: { width: 1024, height: 768 },
       proxy,
     });
     return browser;
