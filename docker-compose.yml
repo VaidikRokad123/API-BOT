@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  gpt-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gpt-automation-agent
+    restart: unless-stopped
+    ports:
+      - "3000:3000" # Web UI & OpenAI-compatible LLM API (/v1/chat/completions)
+      - "6080:6080" # noVNC Web Remote Browser GUI (http://localhost:6080/vnc.html)
+    shm_size: 1gb # Essential for Chromium memory management
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - HEADLESS=false # Runs headful inside virtual Xvfb display (:99)
+      - ENABLE_VNC=true # Exposes live browser on port 6080 for manual 2FA / Login
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      # Optional: Route browser traffic through residential proxy to prevent datacenter IP bans
+      - PROXY_SERVER=${PROXY_SERVER:-}
+      - PROXY_USERNAME=${PROXY_USERNAME:-}
+      - PROXY_PASSWORD=${PROXY_PASSWORD:-}
+      # Optional: Hydrate session cookies automatically on boot
+      - SESSION_CHATGPT_BASE64=${SESSION_CHATGPT_BASE64:-}
+      - SESSION_GROK_BASE64=${SESSION_GROK_BASE64:-}
+      - SESSION_GEMINI_BASE64=${SESSION_GEMINI_BASE64:-}
+      - SESSION_PERPLEXITY_BASE64=${SESSION_PERPLEXITY_BASE64:-}
+      - SESSION_DEEPSEEK_BASE64=${SESSION_DEEPSEEK_BASE64:-}
+      # MongoDB (optional)
+      - MONGODB_URI=${MONGODB_URI:-}
+    volumes:
+      # Persist session cookies and user profiles across container restarts/rebuilds
+      - ./backend/session:/app/backend/session
+      - ./backend/data:/app/backend/data
+      - ./backend/subagent_runs:/app/backend/subagent_runs

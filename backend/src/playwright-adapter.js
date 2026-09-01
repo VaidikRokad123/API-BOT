@@ -262,12 +262,13 @@ export class PlaywrightBrowser {
 
   // Create the single context for this engine, optionally seeding storageState.
   // Session files already use Playwright's storageState shape ({cookies,origins}).
-  async initContext({ storageState, userAgent, viewport, recordVideo } = {}) {
+  async initContext({ storageState, userAgent, viewport, recordVideo, proxy } = {}) {
     if (this.context) return this.context;
     const opts = { viewport: viewport || { width: 1280, height: 900 } };
     if (userAgent || this.userAgent) opts.userAgent = userAgent || this.userAgent;
     if (storageState) opts.storageState = storageState;
     if (recordVideo) opts.recordVideo = recordVideo;
+    if (proxy) opts.proxy = proxy;
     this.context = await this.browser.newContext(opts);
 
     // Inject full stealth evasions from stealth.js

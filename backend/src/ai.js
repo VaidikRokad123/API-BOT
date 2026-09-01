@@ -17,8 +17,8 @@ export function readActiveKey() {
 
 import path from 'path';
 
-function ensureSessionFromEnv(targetKey, sFile) {
-  if (fs.existsSync(sFile)) return;
+export function ensureSessionFromEnv(targetKey, sFile) {
+  if (fs.existsSync(sFile)) return true;
 
   const envKeyBase64 = `SESSION_${targetKey.toUpperCase()}_BASE64`;
   const envKeyJson = `SESSION_${targetKey.toUpperCase()}_JSON`;
@@ -26,7 +26,7 @@ function ensureSessionFromEnv(targetKey, sFile) {
   const base64Data = process.env[envKeyBase64];
   const jsonData = process.env[envKeyJson];
 
-  if (!base64Data && !jsonData) return;
+  if (!base64Data && !jsonData) return false;
 
   try {
     const dir = path.dirname(sFile);
@@ -42,7 +42,7 @@ function ensureSessionFromEnv(targetKey, sFile) {
       } catch (b64Err) {
         console.error(`  ✗ [Session Error] Failed to decode Base64 string from ${envKeyBase64}: ${b64Err.message}`);
         console.error(`  💡 Re-run 'npm run export-sessions' locally and copy the clean Base64 value.`);
-        return;
+        return false;
       }
     } else if (jsonData) {
       sourceName = envKeyJson;
@@ -58,14 +58,33 @@ function ensureSessionFromEnv(targetKey, sFile) {
 
       fs.writeFileSync(sFile, JSON.stringify(parsed, null, 2), 'utf8');
       console.log(`  ✓ Restored and validated ${targetKey} session from ${sourceName}.`);
+      return true;
     } catch (jsonErr) {
       console.error(`  ✗ [Session Error] Invalid session JSON in ${sourceName}: ${jsonErr.message}`);
       console.error(`  💡 Environment variable ${sourceName} contains corrupted or invalid session data.`);
+      return false;
     }
   } catch (err) {
     console.error(`  ✗ [Session Error] Error setting up ${targetKey} session from env:`, err.message);
+    return false;
   }
 }
+
+/**
+ * Hydrates all provider sessions from environment variables at startup.
+ */
+export function hydrateAllSessionsFromEnv() {
+  const providers = ['chatgpt', 'grok', 'gemini', 'perplexity', 'deepseek'];
+  let restored = 0;
+  for (const key of providers) {
+    const sFile = sessionFile(key);
+    if (ensureSessionFromEnv(key, sFile)) {
+      restored++;
+    }
+  }
+  return restored;
+}
+
 
 export async function openAiSession(visible = false, options = {}) {
   const targetKey = options.provider || readActiveKey();

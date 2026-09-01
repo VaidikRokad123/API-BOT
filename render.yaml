@@ -2,19 +2,33 @@ services:
   - type: web
     name: gpt-llm-backend
     env: docker
-    plan: starter # Starter or Free tier
+    plan: starter # Starter (1GB RAM+) recommended for Chromium browser automation
     region: oregon
     dockerfilePath: ./Dockerfile
     envVars:
       - key: PORT
         value: "3000"
-      - key: HEADLESS
-        value: "true"
       - key: NODE_ENV
         value: "production"
+      - key: HEADLESS
+        value: "false"
+      - key: DISPLAY
+        value: ":99"
       - key: LLM_API_KEY
         generateValue: true
-    # Optional persistent disk on Render to store sessions across restarts
+      - key: PROXY_SERVER
+        sync: false
+      - key: SESSION_CHATGPT_BASE64
+        sync: false
+      - key: SESSION_GROK_BASE64
+        sync: false
+      - key: SESSION_GEMINI_BASE64
+        sync: false
+      - key: SESSION_PERPLEXITY_BASE64
+        sync: false
+      - key: SESSION_DEEPSEEK_BASE64
+        sync: false
+    # Persistent disk to preserve logged-in sessions across deploys
     disk:
       name: session-storage
       mountPath: /app/backend/session

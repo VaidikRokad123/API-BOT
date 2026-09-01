@@ -25,6 +25,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.join(__dirname, '..');
 
+import { hydrateAllSessionsFromEnv } from './src/ai.js';
+
 // Connect to MongoDB (optional for LLM API server)
 const mongoUri = process.env.MONGODB_URI;
 if (mongoUri) {
@@ -33,6 +35,12 @@ if (mongoUri) {
     .catch(err => console.warn('  ⚠️ MongoDB connection warning:', err.message));
 } else {
   console.log('  ℹ️ MONGODB_URI not configured; running in API mode.');
+}
+
+// Auto-hydrate sessions from environment variables on startup
+const restoredCount = hydrateAllSessionsFromEnv();
+if (restoredCount > 0) {
+  console.log(`  ✓ Auto-hydrated ${restoredCount} provider session(s) from environment.`);
 }
 
 const app = express();

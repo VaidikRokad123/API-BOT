@@ -25,27 +25,59 @@ const ENGINES = {
   'real-opera':  { name: 'Real Opera (connect over CDP)' },
 };
 
+const isWin = process.platform === 'win32';
+const isMac = process.platform === 'darwin';
+
+export function getProxyConfig() {
+  const proxyServer = process.env.PROXY_SERVER || process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+  if (!proxyServer) return undefined;
+
+  const config = { server: proxyServer };
+  if (process.env.PROXY_USERNAME) config.username = process.env.PROXY_USERNAME;
+  if (process.env.PROXY_PASSWORD) config.password = process.env.PROXY_PASSWORD;
+  if (process.env.PROXY_BYPASS) config.bypass = process.env.PROXY_BYPASS;
+  return config;
+}
+
 const REAL_BROWSER_CONFIG = {
   'real-chrome': {
     label: 'Chrome',
-    executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    executablePath: isWin
+      ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+      : isMac
+        ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+        : (fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : '/usr/bin/chromium-browser'),
     port: 9222,
     cdpUrl: process.env.REAL_CHROME_CDP_URL || 'http://127.0.0.1:9222',
-    command: '& "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222',
+    command: isWin
+      ? '& "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222'
+      : 'google-chrome --remote-debugging-port=9222',
   },
   'real-brave': {
     label: 'Brave',
-    executablePath: 'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+    executablePath: isWin
+      ? 'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe'
+      : isMac
+        ? '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
+        : '/usr/bin/brave-browser',
     port: 9223,
     cdpUrl: process.env.REAL_BRAVE_CDP_URL || 'http://127.0.0.1:9223',
-    command: '& "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe" --remote-debugging-port=9223',
+    command: isWin
+      ? '& "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe" --remote-debugging-port=9223'
+      : 'brave-browser --remote-debugging-port=9223',
   },
   'real-opera': {
     label: 'Opera',
-    executablePath: path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Opera', 'opera.exe'),
+    executablePath: isWin
+      ? path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Opera', 'opera.exe')
+      : isMac
+        ? '/Applications/Opera.app/Contents/MacOS/Opera'
+        : '/usr/bin/opera',
     port: 9224,
     cdpUrl: process.env.REAL_OPERA_CDP_URL || 'http://127.0.0.1:9224',
-    command: '& "$env:LOCALAPPDATA\\Programs\\Opera\\opera.exe" --remote-debugging-port=9224',
+    command: isWin
+      ? '& "$env:LOCALAPPDATA\\Programs\\Opera\\opera.exe" --remote-debugging-port=9224'
+      : 'opera --remote-debugging-port=9224',
   },
 };
 const realBrowserConnections = new WeakSet();
@@ -241,6 +273,7 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
   const isServerEnv = process.env.HEADLESS === 'true' || (process.platform === 'linux' && !hasDisplay);
   const useHeadless = process.env.HEADLESS === 'false' ? false : (visible ? false : isServerEnv);
   const browserChannel = process.env.BROWSER_CHANNEL || (isServerEnv ? undefined : 'chrome');
+  const proxy = getProxyConfig();
 
   if (options.persistentProfile && pref === 'playwright') {
     let chromium;
@@ -265,6 +298,7 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
       viewport: { width: 1280, height: 900 },
       userAgent: MATCHED_UA,
     };
+    if (proxy) launchOptions.proxy = proxy;
     if (browserChannel) launchOptions.channel = browserChannel;
     const context = await chromium.launchPersistentContext(profileDir, launchOptions);
     return new PlaywrightPersistentBrowser(context);
@@ -281,6 +315,7 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
     ignoreDefaultArgs: ['--enable-automation', '--disable-popup-blocking', '--disable-extensions'],
     args: [...STEALTH_LAUNCH_ARGS],
   };
+  if (proxy) launchOptions.proxy = proxy;
   if (browserChannel) launchOptions.channel = browserChannel;
   const pwBrowser = await chromium.launch(launchOptions);
   return new PlaywrightBrowser(pwBrowser, { userAgent: MATCHED_UA });
@@ -312,10 +347,12 @@ export async function newStealthContext(browser, storageStatePath = null) {
         console.error('  Failed to restore storageState (Playwright):', err.message);
       }
     }
+    const proxy = getProxyConfig();
     await browser.initContext({
       storageState,
       userAgent: MATCHED_UA,
       viewport: { width: 1280, height: 900 },
+      proxy,
     });
     return browser;
   }
