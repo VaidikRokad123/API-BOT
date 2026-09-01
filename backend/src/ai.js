@@ -113,9 +113,16 @@ export async function openAiSession(visible = false, options = {}) {
     console.log(`[AI Navigated to: ${landingUrl}]`);
 
     // Run universal challenge detection & solver (Cloudflare Turnstile, Interstitials, Popups)
-    await solveAntiBotChallenge(page, { maxWaitMs: 30000, pollIntervalMs: 800 });
+    await solveAntiBotChallenge(page, { maxWaitMs: 35000, pollIntervalMs: 800 });
 
-    await page.waitForSelector(provider.config.readySelector, { timeout: 30000 });
+    try {
+      await page.waitForSelector(provider.config.readySelector, { timeout: 20000 });
+    } catch {
+      // Second pass if Cloudflare or a modal took extra time to settle
+      console.log('  ⏳ Waiting for AI input to settle...');
+      await solveAntiBotChallenge(page, { maxWaitMs: 25000, pollIntervalMs: 800 });
+      await page.waitForSelector(provider.config.readySelector, { timeout: 25000 });
+    }
     console.log('Ready ✓\n');
   } catch (waitErr) {
     const currentUrl = page.url ? page.url() : 'unknown';
@@ -123,7 +130,7 @@ export async function openAiSession(visible = false, options = {}) {
     await browser.close().catch(() => {});
 
     const envVar = `SESSION_${targetKey.toUpperCase()}_BASE64`;
-    const errMsg = `Session expired or invalid for ${provider.config.name} (${targetKey}). Page URL: '${currentUrl}', Title: '${currentTitle}'. Error: ${waitErr.message}`;
+    const errMsg = `Session expired or challenge encountered for ${provider.config.name} (${targetKey}). Page URL: '${currentUrl}', Title: '${currentTitle}'. If Cloudflare challenge appeared, change HEADLESS=false in Render env vars and open /novnc/vnc.html to inspect. Error: ${waitErr.message}`;
     console.error(`  ✗ [Login Error] ${errMsg}`);
     throw new Error(errMsg);
   }
