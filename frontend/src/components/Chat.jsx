@@ -43,7 +43,10 @@ export default function Chat({ ctx }) {
     setLoading(true);
     try {
       const data = await ctx.API.post('/chat/start');
-      if (data.error) throw new Error(data.error);
+      if (data.error) {
+        const msg = typeof data.error === 'object' ? (data.error.message || JSON.stringify(data.error)) : data.error;
+        throw new Error(msg);
+      }
       setSessionId(data.sessionId);
       setMessages([{ text: `Connected to ${data.provider}. What would you like to discuss?`, type: 'ai', provider: data.provider }]);
       ctx.showToast(`Chat started with ${data.provider}`, 'success');

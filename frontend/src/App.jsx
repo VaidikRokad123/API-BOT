@@ -84,7 +84,12 @@ export default function App() {
       const res = await fetch(`${BACKEND_URL}/api${url}`, {
         headers: { 'ngrok-skip-browser-warning': 'true' }
       });
-      return res.json();
+      const data = await res.json().catch(() => ({ error: 'Invalid server response' }));
+      if (!res.ok && data.error) {
+        const msg = typeof data.error === 'object' ? (data.error.message || JSON.stringify(data.error)) : data.error;
+        throw new Error(msg);
+      }
+      return data;
     },
     async post(url, body = {}) {
       const res = await fetch(`${BACKEND_URL}/api${url}`, {
@@ -95,13 +100,18 @@ export default function App() {
         },
         body: JSON.stringify(body)
       });
-      return res.json();
+      const data = await res.json().catch(() => ({ error: 'Invalid server response' }));
+      if (!res.ok && data.error) {
+        const msg = typeof data.error === 'object' ? (data.error.message || JSON.stringify(data.error)) : data.error;
+        throw new Error(msg);
+      }
+      return data;
     },
     async rawGet(endpoint) {
       const res = await fetch(`${BACKEND_URL}${endpoint}`, {
         headers: { 'ngrok-skip-browser-warning': 'true' }
       });
-      return res.json();
+      return res.json().catch(() => ({ error: 'Invalid server response' }));
     },
     async rawPost(endpoint, body = {}, customHeaders = {}) {
       const res = await fetch(`${BACKEND_URL}${endpoint}`, {
@@ -113,14 +123,18 @@ export default function App() {
         },
         body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined
       });
-      return res.json();
+      return res.json().catch(() => ({ error: 'Invalid server response' }));
     }
   };
 
   const showToast = (message, type = 'info') => {
     const id = Date.now() + Math.random();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+    let text = message;
+    if (typeof text === 'object' && text !== null) {
+      text = text.message || text.error || JSON.stringify(text);
+    }
+    setToasts(prev => [...prev, { id, message: String(text || 'Unknown error'), type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
   };
 
   const updateProviderStatus = async () => {
