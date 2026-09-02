@@ -234,7 +234,14 @@ const MATCHED_UA = generateMatchedUserAgent();
 // ─── Launch & context ──────────────────────────────────────────────────────
 
 export async function launchBrowser(visible = false, profileSuffix = '', options = {}) {
+  const isDocker = fs.existsSync('/.dockerenv') || process.env.IS_DOCKER === 'true';
+  const isLinux = process.platform === 'linux';
   let pref = options.engine || (options.forceAutomated ? readAiBrowserPref() : readBrowserPref());
+
+  // In Docker or Linux container environments, automatically use Playwright unless a custom CDP URL is explicitly provided
+  if ((isDocker || isLinux) && pref && pref.startsWith('real-') && !process.env.REAL_CHROME_CDP_URL) {
+    pref = 'playwright';
+  }
 
   if (options.forceAutomated && ENGINES[pref]?.aiBlocked) {
     console.log(`  ⚠ Selected AI engine '${pref}' is blocked. Falling back to playwright for automated run.`);
