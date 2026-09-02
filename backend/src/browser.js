@@ -276,8 +276,6 @@ export async function launchBrowser(visible = false, profileSuffix = '', options
   }
 
   // Playwright with persistent profile — keeps Google OAuth cookies between apply runs.
-  const isDocker = fs.existsSync('/.dockerenv') || process.env.IS_DOCKER === 'true';
-  const isLinux = process.platform === 'linux';
   const hasDisplay = !!process.env.DISPLAY;
   const isServerEnv = process.env.HEADLESS === 'true' || (isLinux && !hasDisplay);
   const useHeadless = process.env.HEADLESS === 'false' ? false : (visible ? false : isServerEnv);
