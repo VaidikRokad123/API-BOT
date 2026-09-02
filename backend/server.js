@@ -83,7 +83,8 @@ server.on('upgrade', (req, socket, head) => {
   }
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Serve frontend static files
 const frontendDistPath = path.join(ROOT, 'frontend', 'dist');

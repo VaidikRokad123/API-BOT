@@ -91,7 +91,13 @@ export default function App() {
       const res = await fetch(`${BACKEND_URL}/api${url}`, {
         headers: getAuthHeaders()
       });
-      const data = await res.json().catch(() => ({ error: 'Invalid server response' }));
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: text || `HTTP ${res.status} error` };
+      }
       if (!res.ok && data.error) {
         const msg = typeof data.error === 'object' ? (data.error.message || JSON.stringify(data.error)) : data.error;
         throw new Error(msg);
@@ -107,7 +113,13 @@ export default function App() {
         },
         body: JSON.stringify(body)
       });
-      const data = await res.json().catch(() => ({ error: 'Invalid server response' }));
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: text || `HTTP ${res.status} error` };
+      }
       if (!res.ok && data.error) {
         const msg = typeof data.error === 'object' ? (data.error.message || JSON.stringify(data.error)) : data.error;
         throw new Error(msg);
@@ -118,7 +130,8 @@ export default function App() {
       const res = await fetch(`${BACKEND_URL}${endpoint}`, {
         headers: getAuthHeaders()
       });
-      return res.json().catch(() => ({ error: 'Invalid server response' }));
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { return { error: text }; }
     },
     async rawPost(endpoint, body = {}, customHeaders = {}) {
       const res = await fetch(`${BACKEND_URL}${endpoint}`, {
@@ -130,7 +143,8 @@ export default function App() {
         },
         body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined
       });
-      return res.json().catch(() => ({ error: 'Invalid server response' }));
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { return { error: text }; }
     }
   };
 
