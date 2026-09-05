@@ -1,966 +1,593 @@
-# AI Automation Agent
+# 🤖 Autopilot — AI Automation Agent & Local LLM API
 
-> Terminal-based AI agent that automates **ChatGPT, Grok, Gemini, Perplexity, and DeepSeek** — no API keys, no cost. Drives your real logged-in account through a browser.
+<div align="center">
 
-**Core capabilities:**
+[![Node.js Version](https://img.shields.io/badge/Node.js-18%2B-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Express](https://img.shields.io/badge/Express-5.x-000000?style=flat-square&logo=express&logoColor=white)](https://expressjs.com)
+[![React](https://img.shields.io/badge/React-18.x-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
+[![Vite](https://img.shields.io/badge/Vite-5.x-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
+[![Playwright](https://img.shields.io/badge/Playwright-1.61%2B-2EAD33?style=flat-square&logo=playwright&logoColor=white)](https://playwright.dev)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
-| Feature | Description |
-|---|---|
-| **Local LLM API** | Standard **OpenAI-compatible REST API** (`/v1/chat/completions`, `/v1/models`) to use your session as a local LLM in Python, Node.js, LangChain, Chatbox, etc. |
-| **Job Finder** | Search jobs using **Firecrawl**, match with your resume (`profile.json`), filter by role, experience, location, CTC, and auto-apply! |
-| **Login** | Pick a provider and save your session once |
-| **Chat** | Interactive terminal chat with memory across messages |
-| **Ask** | One-shot question — prints the answer and returns |
-| **Council** | Ask all logged-in providers at once, merge their answers into one best response |
-| **Apply** | Researches the company, then AI fills and submits job applications automatically |
-| **Browser Subagent** | Delegate natural-language browser tasks (check feeds, pull headlines, extract data) |
+**An autonomous AI agent and OpenAI-compatible LLM gateway powered by real browser sessions.**  
+Automates **ChatGPT, Grok, Gemini, Perplexity, and DeepSeek** with **zero API key fees** — drives your logged-in browser sessions directly through high-performance automation.
 
-Everything runs from a single interactive console (`node agent.js`) or web server (`npm start`). The browser is **visible by default** so you can watch it work.
-
----
-
-## Table of Contents
-
-- [Quick Start](#quick-start)
-- [Local LLM API (OpenAI Compatible)](#local-llm-api-openai-compatible)
-- [Requirements](#requirements)
-- [The Console](#the-console)
-- [Web Interface](#web-interface)
-- [Setup (Step by Step)](#setup-step-by-step)
-- [How `/chat` Works](#how-chat-works)
-- [How `/ask` Works](#how-ask-works)
-- [How `/council` Works](#how-council-works)
-- [How `/apply` Works](#how-apply-works)
-- [The Browser Subagent (`/browser`)](#the-browser-subagent-browser)
-- [Bowser Batch Execution Mode (`/batch`)](#bowser-batch-execution-mode-batch)
-- [ScrapeGraphAI Pipeline Port](#scrapegraphai-pipeline-port)
-- [Step-Level Verification & Console Harvesting](#step-level-verification--console-harvesting)
-- [Companion YAML Workflows](#companion-yaml-workflows)
-- [Advanced Customizations](#advanced-customizations)
-- [Architecture](#architecture)
-- [Permissions System](#permissions-system)
-- [Application Ledger](#application-ledger)
-- [Domain Skills (Auto-Learning)](#domain-skills-auto-learning)
-- [Indirect Prompt Injection Defense (IDPI)](#indirect-prompt-injection-defense-idpi)
-- [AutoSolver & Challenge Heuristics](#autosolver--challenge-heuristics)
-- [Project Structure](#project-structure)
-- [Testing](#testing)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
+[Key Features](#-key-features) •
+[Quick Start](#-quick-start) •
+[Local LLM API](#-local-llm-api-openai-compatible) •
+[Web Dashboard](#-web-dashboard--remote-gui) •
+[CLI Console](#-cli-interactive-console) •
+[Architecture](#-architecture) •
+[Deployment](#-deployment-docker-render-ec2)
 
 ---
 
-## Quick Start
+</div>
 
-```powershell
-# 1. Install dependencies for all folders (root, backend, frontend)
+## 🌟 Overview
+
+**Autopilot** transforms your existing consumer web accounts (ChatGPT, Grok, Gemini, Perplexity, DeepSeek) into:
+
+1. 🔌 **A standard OpenAI-compatible REST API** (`/v1/chat/completions`, `/v1/models`, `/v1/completions`) usable in Python, Node.js, LangChain, Cursor, Chatbox, or any AI client without paying for token fees.
+2. 💼 **An AI Job Finder & Auto-Apply Engine** that crawls live listings with **Firecrawl**, matches roles against your resume profile (`profile.json`), and autonomously fills and submits multi-page job applications.
+3. 🌐 **An Autonomous Web Subagent ("Bowser")** capable of natural-language browser navigation, scraping, form execution, and data extraction with adaptive self-healing element relocation and ad/tracker blocking.
+4. 🧠 **An AI Council (`/council`)** that broadcasts questions concurrently to multiple AI providers and synthesizes their consensus into a single comprehensive answer.
+5. 🛡️ **Universal Anti-Bot & Cloudflare Solver (`/solve`)** that automates Turnstile challenge bypasses with stealth mouse physics and humanized interactions.
+6. 🖥️ **Fullstack React SPA + Remote noVNC GUI** providing a dashboard, real-time Socket.IO logs, API playground, session management, and live browser streaming on virtual displays (`:99`).
+
+---
+
+## ⚡ Feature Matrix
+
+| Feature | Description | Interfaces |
+|---|---|---|
+| **Local LLM API** | Drop-in OpenAI-compatible API (`/v1/chat/completions`, `/v1/models`) supporting streaming (SSE), multi-turn session pooling, and optional API key security. | REST API, SDKs, Web Playground |
+| **Job Finder** | Search jobs using Firecrawl, calculate resume compatibility scores, filter by CTC/experience/location, and trigger auto-apply workflows. | Web UI, REST (`/api/jobs/*`) |
+| **Auto-Apply Engine** | 20+ step autonomous form filler with DOM scraping, company research, OCR/captcha resolution, and application ledger tracking. | CLI (`/apply`), Web UI, REST |
+| **Browser Subagent ("Bowser")** | Natural-language web worker with Scrapling-inspired adaptive element relocation, ad/tracker filtering, and Indirect Prompt Injection (IDPI) defense. | CLI (`/browser`), Web UI, REST |
+| **Multi-Provider Council** | Query ChatGPT, Grok, Gemini, Perplexity, and DeepSeek in parallel and synthesize unified responses. | CLI (`/council`), Web UI, REST |
+| **Anti-Bot & Turnstile Solver** | Automatic Cloudflare Turnstile, interstitial, and challenge detection & solving with humanized coordinate clicks. | CLI (`test_solver.js`), REST (`/v1/solve`) |
+| **Dual Engine Strategy** | Run with isolated, headless-capable **Playwright** or connect directly to **Real Browsers (Chrome, Brave, Opera via CDP)** for existing logins & extensions. | Settings, CLI flags, Config |
+| **Remote Browser GUI (noVNC)** | Stream the headful virtual display buffer (`Xvfb`) over WebSockets to `/novnc/vnc.html` for headless VPS/Docker setups. | Web Browser |
+| **Session Cloud Hydration** | Export minified Base64 sessions (`npm run export-sessions`) to deploy to cloud providers (Render, EC2, Railway) with zero interactive logins. | CLI, Web UI, Env Vars |
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- **Node.js**: v18.0.0 or higher
+- **npm**: v9.0.0 or higher
+- **Chromium / Playwright**: Installed automatically via npx
+
+### 1. Installation
+
+Clone the repository and install all dependencies (root, backend, and frontend):
+
+```bash
+# Clone the repository
+git clone https://github.com/VaidikRokad123/API-BOT.git
+cd API-BOT
+
+# Install all dependencies across root, backend, and frontend
 npm install
 npm run install:all
-npx playwright install chromium
 
-# 2. Configure Environment Variables
-# Copy the env templates and set your MongoDB URI / ports
+# Download Chromium browser binaries for Playwright
+npx playwright install chromium
+```
+
+### 2. Configure Environment
+
+Copy the example environment files for both backend and frontend:
+
+**On Windows (PowerShell):**
+```powershell
 copy backend\.env.example backend\.env
 copy frontend\.env.example frontend\.env
+```
 
-# 3. Create your profile (only needed for /apply)
+**On Linux / macOS:**
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+```
+
+Edit `backend/.env` with your desired configuration (e.g. `PORT=3000`, `LLM_API_KEY`, optional `FIRECRAWL_API_KEY` for Job Finder, optional `MONGODB_URI`).
+
+### 3. Setup Candidate Profile (Optional for Job Auto-Apply)
+
+```powershell
 copy backend\data\profile.example.json backend\data\profile.json
-# → open backend/data/profile.json and fill in your real info
+```
 
-# 4. Start the interactive CLI agent REPL
+Open `backend/data/profile.json` and fill in your name, contact details, experience, skills, and resume path.
+
+### 4. Run the Application
+
+You can run Autopilot in three different modes:
+
+#### Option A: Fullstack Web App (Backend API + React Frontend)
+```bash
+# Run backend (port 3000) and frontend Vite dev server (port 5000) concurrently
+npm run dev
+```
+Open **`http://localhost:5000`** in your browser (proxies API calls to `http://localhost:3000`).
+
+#### Option B: Standalone Production Server
+```bash
+# Build React frontend bundle and start the unified Express server
+npm run build:frontend
+npm start
+```
+Open **`http://localhost:3000`** in your browser.
+
+#### Option C: Interactive Terminal CLI (REPL)
+```bash
+npm run agent
+# or: node backend/agent.js
+```
+
+---
+
+## 🔌 Local LLM API (OpenAI Compatible)
+
+The backend provides a drop-in replacement for the OpenAI API at `http://localhost:3000/v1` (or your cloud URL).
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/v1/models` | List all supported providers (`chatgpt`, `grok`, `gemini`, `perplexity`, `deepseek`) and login statuses. |
+| `POST` | `/v1/chat/completions` | Create a chat completion (supports `messages`, `model`, `stream: true`, `session_id`). |
+| `POST` | `/v1/completions` | Legacy prompt completion endpoint. |
+| `POST` | `/v1/solve` | Universal anti-bot / Cloudflare Turnstile solver endpoint. |
+
+### 1. Python Integration (`openai` SDK)
+
+```python
+from openai import OpenAI
+
+# Point client to your local or deployed Autopilot server
+client = OpenAI(
+    base_url="http://localhost:3000/v1",
+    api_key="local"  # Or your LLM_API_KEY if configured in backend/.env
+)
+
+response = client.chat.completions.create(
+    model="chatgpt",  # Options: "chatgpt", "grok", "gemini", "perplexity", "deepseek"
+    messages=[
+        {"role": "system", "content": "You are an expert fullstack software engineer."},
+        {"role": "user", "content": "Explain how React Server Components work in 3 concise bullet points."}
+    ]
+)
+
+print(response.choices[0].message.content)
+```
+
+#### Streaming Responses in Python:
+```python
+stream = client.chat.completions.create(
+    model="deepseek",
+    messages=[{"role": "user", "content": "Write a Python script for web scraping."}],
+    stream=True
+)
+
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
+```
+
+---
+
+### 2. Node.js / JavaScript Integration (`openai` npm package)
+
+```javascript
+import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  baseURL: 'http://localhost:3000/v1',
+  apiKey: process.env.LLM_API_KEY || 'local',
+});
+
+async function run() {
+  const completion = await openai.chat.completions.create({
+    model: 'grok', // "chatgpt" | "grok" | "gemini" | "perplexity" | "deepseek"
+    messages: [
+      { role: 'user', content: 'What are the main advantages of using Vite over Webpack?' }
+    ],
+  });
+
+  console.log(completion.choices[0].message.content);
+}
+
+run();
+```
+
+---
+
+### 3. cURL Request
+
+```bash
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer local" \
+  -d '{
+    "model": "gemini",
+    "messages": [
+      {"role": "user", "content": "Hello! Give me a creative tech startup idea."}
+    ]
+  }'
+```
+
+---
+
+### 4. Multi-Turn Session Pooling (`session_id`)
+
+Autopilot includes warm browser session pooling. Pass `session_id` to maintain conversation state in the same browser tab without starting fresh:
+
+```bash
+# Turn 1:
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "chatgpt",
+    "session_id": "user-session-42",
+    "messages": [{"role": "user", "content": "My name is Alice and I love Rust."}]
+  }'
+
+# Turn 2 (context preserved in browser):
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "chatgpt",
+    "session_id": "user-session-42",
+    "messages": [{"role": "user", "content": "What is my name and favorite language?"}]
+  }'
+```
+
+---
+
+## 💼 AI Job Finder & Automated Application
+
+Autopilot features a dedicated end-to-end recruitment agent:
+
+```mermaid
+graph LR
+    A[Firecrawl Search] --> B[Job Discovery & Extraction]
+    B --> C[Resume Matcher & Scoring]
+    C --> D[Candidate Profile Filter]
+    D --> E[Autonomous Form Subagent]
+    E --> F[Company Research]
+    E --> G[DOM Scraper & Field Fitter]
+    E --> H[OCR & Captcha Solver]
+    E --> I[Application Ledger Entry]
+```
+
+1. **Job Search via Firecrawl**: Automatically crawls job boards and company career sites using keyword queries, roles, experience filters, and location constraints.
+2. **Resume Scoring Algorithm**: Compares the live job description against `backend/data/profile.json` (skills, expected CTC, years of experience, current role) and outputs a match rating (0–100%).
+3. **Autonomous Application Pipeline (`/apply`)**:
+   - **Research Phase**: Performs pre-application analysis of the target company and role.
+   - **Multi-Step Form Filling**: Iterates through application pages (up to 40 steps), filling text inputs, dropdowns, radio buttons, file uploads (PDF resume), and custom canvas signature drawing.
+   - **Ledger Verification**: Avoids applying twice to the same listing using the SQLite/MongoDB application ledger (`backend/data/applications.sqlite`).
+
+---
+
+## 🌐 Bowser: Autonomous Browser Subagent
+
+The autonomous subagent (`backend/src/subagent/`) executes complex web tasks described in plain English:
+
+- **Adaptive Element Relocation**: Uses similarity scoring algorithms (ported from Scrapling) to relocate changed or mutated DOM elements during multi-step runs.
+- **Ad & Tracker Blocker**: Blocks 3,500+ tracking and advertising domains to speed up page loads and prevent modal noise.
+- **Indirect Prompt Injection Defense (IDPI)**: Scans page content before parsing to detect and neutralize adversarial prompt injection payloads hidden in web text.
+- **FSM Application Flow**: Finite state machine ensures robust transitions between discovery, form filling, verification, and submission.
+- **Domain Skills Auto-Learning**: Records successful interaction heuristics for specific domains to speed up subsequent runs.
+
+---
+
+## 🛡️ Anti-Bot & Cloudflare Turnstile Solver
+
+Autopilot features built-in challenge mitigation (`backend/src/stealth.js`):
+
+```bash
+# Test anti-bot solver via CLI on any protected URL:
+node backend/test_solver.js https://nowsecure.nl --visible
+```
+
+Or call the REST API:
+```bash
+curl -X POST http://localhost:3000/v1/solve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://nowsecure.nl",
+    "timeout": 30000,
+    "takeScreenshot": true
+  }'
+```
+
+Features:
+- Cloudflare Turnstile checkbox coordinate detection with humanized bezier mouse movements.
+- Automated interstitial, overlay, and popup dismissals.
+- Advanced stealth launch flags masking `navigator.webdriver`, canvas fingerprints, and WebGL attributes.
+
+---
+
+## 🖥️ Web Dashboard & Remote GUI
+
+The modern React Single-Page Application (`frontend/`) includes 8 dedicated views:
+
+1. **Dashboard**: Live system status, active provider, connected browser engine, quick action shortcuts, and execution stats.
+2. **Job Finder**: Interactive Firecrawl job search, match scoring cards, CTC/experience filters, and one-click auto-apply.
+3. **Chat**: Full multi-turn chat interface with live streaming responses from your active session.
+4. **Apply Form**: Manual job application trigger with live real-time console streaming over Socket.IO.
+5. **Browser Agent**: Natural-language browser task execution with step-by-step logs and artifact viewing.
+6. **Local LLM API**: OpenAI API documentation, interactive playground, cURL/Python/JavaScript code generator, and endpoint testing.
+7. **History**: Full application audit log, verdict filters, success rates, and failure taxonomy charts.
+8. **Settings**: Switch AI providers, configure browser engines (Playwright vs Real Chrome/Brave/Opera CDP), import/export Base64 session keys, and inspect environment variables.
+
+### Remote Virtual Browser GUI (noVNC)
+When running inside Docker, on a VPS, or in headless environments:
+- The browser runs inside an **Xvfb virtual display (:99)**.
+- Autopilot includes an integrated **noVNC + Websockify proxy** accessible directly at:
+  ```
+  http://localhost:3000/novnc/vnc.html?autoconnect=true&resize=remote
+  ```
+- Watch the browser work live, perform manual 2FA logins, or inspect anti-bot challenges remotely.
+
+---
+
+## 💻 CLI Interactive Console
+
+Launch the interactive terminal REPL:
+
+```bash
 npm run agent
 ```
 
-Then inside the console:
+### Slash Commands Reference
 
-```
-> /login          choose ChatGPT / Grok / Gemini / Perplexity / DeepSeek, log in once
-> /chat           start chatting
-> /apply <url>    auto-fill a job application
-```
-
----
-
-## Local LLM API (OpenAI Compatible)
-
-Run your browser session as a local LLM API for Python, Node.js, LangChain, Chatbox, or any OpenAI-compatible app.
-
-1. **Start the API server**:
-   ```bash
-   npm start
-   # Local Server: http://localhost:3000
-   # Remote via ngrok: https://karine-trisomic-karima.ngrok-free.dev
-   ```
-
-2. **Use in Python (`openai` SDK)**:
-   ```python
-   from openai import OpenAI
-
-   # Point client to local server or your ngrok URL
-   client = OpenAI(
-       base_url="https://karine-trisomic-karima.ngrok-free.dev/v1",  # or "http://localhost:3000/v1"
-       api_key="local",
-       default_headers={"ngrok-skip-browser-warning": "true"}
-   )
-
-   res = client.chat.completions.create(
-       model="grok", # "chatgpt" | "grok" | "gemini" | "perplexity" | "deepseek"
-       messages=[{"role": "user", "content": "Explain quantum computing simply"}]
-   )
-   print(res.choices[0].message.content)
-   ```
-
-3. **cURL Request (Remote via ngrok)**:
-   ```bash
-   curl https://karine-trisomic-karima.ngrok-free.dev/v1/chat/completions \
-     -H "Content-Type: application/json" \
-     -H "ngrok-skip-browser-warning: true" \
-     -d '{"model":"chatgpt","messages":[{"role":"user","content":"Hello from anywhere!"}]}'
-   ```
-
-For full documentation, ngrok setup, persistent multi-turn sessions, LangChain setup, and API reference, see [DOCS_LLM_API.md](DOCS_LLM_API.md).
-
----
-
-## Requirements
-
-- **Node.js v18+** — [nodejs.org](https://nodejs.org)
-- **MongoDB** — A running MongoDB server instance (local or Atlas cloud URI)
-- An account with at least one of: **ChatGPT**, **Grok**, **Gemini**, **Perplexity**, **DeepSeek** (free tiers work)
-
----
-
-## The Console
-
-Run `npm run agent` (or `node backend/agent.js`) and you get an interactive prompt:
-
-```
-  ╔══════════════════════════════════════════════════════╗
-  ║    AI Agent                                  v1.0    ║
-  ║    Chat · Job Apply · Browser Automation             ║
-  ╚══════════════════════════════════════════════════════╝
-
-  Provider  :  Grok  ✓  (session active)
-  Browser   :  Playwright (ariaSnapshot scraping)
-
-  Type /help for all commands.
-
->
-```
-
-### Commands
-
-| Command | What it does |
-|---|---|
-| `/login` | Pick a provider, open a browser, log in manually, save the session |
-| `/model [provider]` | Choose or switch the active AI provider (accepts name, index, or prompts if blank) |
-| `/chat` | Interactive chat with the active provider (type `exit` to return) |
-| `/ask <question>` | One-shot question — prints the answer and returns to the menu |
-| `/council <question>` | Ask **all** logged-in providers at once, then merge their answers |
-| `/apply <url> [--hidden]` | AI-driven job application (interactive engine selection) |
-| `/batch <file.yaml> [--hidden]` | Run a batch sequence of browser automation tasks defined in a YAML file |
-| `/browser` | Interactively choose/switch the default browser engine |
-| `/browser <engine>` | Directly switch engine (e.g. `real-chrome`, `real-brave`, `real-opera`, `playwright`) |
-| `/browser <task> [--hidden] [--engine=...] [--provider=...]` | Run a natural-language browser automation task via the Subagent |
-| `/status` | Show the active provider and whether its session is valid |
-| `/help` | List all commands |
-| `/exit` | Quit |
-
----
-
-## Web Interface
-
-The project includes a premium, glassmorphic dark-themed Web Interface (Dashboard) built with **React and Vite**, communicating with an Express.js API backend with real-time Socket.IO logs.
-
-### Start the Web Server
-
-You can run the frontend and backend in development mode concurrently or serve them independently.
-
-#### 1. Development Mode (Concurrent Server: Ports `3000` & `5000`)
-You can run both the Express backend API and the React Vite dev server concurrently with a single command from the root folder:
-```powershell
-# Start both backend and React frontend concurrently
-npm run dev
-```
-Open **[http://localhost:5000](http://localhost:5000)** in your browser. API calls and WebSocket connections will automatically be proxied to the backend on port `3000`.
-
-#### 2. Production Mode (Single Port: `3000`)
-You can compile the frontend SPA assets and have the Express backend serve them statically:
-```powershell
-# 1. Compile the React Vite frontend app
-npm run build:frontend
-
-# 2. Start the production backend server
-npm start
-```
-Open **[http://localhost:3000](http://localhost:3000)** in your browser.
-
-#### 3. Custom Backend Routing (e.g. for Render or Ngrok)
-If you host the frontend SPA on a separate platform like **Render** or **GitHub Pages** and expose your local backend via **Ngrok**, you can configure the backend URL by editing the frontend environment variables:
-1. Open `frontend/.env`.
-2. Set the `VITE_BACKEND_URL` variable to your public Ngrok URL:
-   ```env
-   VITE_BACKEND_URL=https://your-ngrok-subdomain.ngrok-free.app
-   ```
-The frontend SPA will load this variable at build/runtime to establish connections. You can also configure or override this URL on the fly inside the **Settings** page of the web application.
-
-### Features
-- **Dashboard**: Quick view of active provider status, connection status, overall stats (e.g. total applied, success rate), and recent application ledger logs.
-- **Chat**: Real-time message streaming with message history, provider selector dropdown, and a live "thinking" state.
-- **Job Apply**: Paste a job application URL, select a browser/AI engine, toggle company research, and view real-time log streaming and final outcome status.
-- **Browser Subagent**: Run natural-language tasks via the browser agent with a live status/screenshot console and completion reports.
-- **History**: Full database query view of all job applications from the MongoDB database with filters and statistics cards.
-- **Settings**: Manage logins/sessions for all 5 providers, choose active browser engines, edit natural-language permission policies, and configure custom backend connection URLs.
-
-### Web Architecture
-
-The application is structured as a standard MERN workspace:
-
-- `/backend/server.js`: Express & Socket.IO server config.
-- `/backend/routes/`: Route modules mapping request parameters to core engine runs.
-- `/frontend/index.html`: Vite entry HTML template.
-- `/frontend/src/App.jsx`: React main layout shell, navigation, and state.
-- `/frontend/src/main.jsx`: React mount entrypoint.
-- `/frontend/src/components/`: Reusable React components (Dashboard, Chat, Apply, Browser, History, Settings).
-- `/frontend/src/index.css`: Glassmorphic layout styling.
-
----
-
-## Setup (Step by Step)
-
-### Step 1 — Install
-
-```powershell
-# Install all dependencies for root, backend, and frontend
-npm install
-npm run install:all
-
-# Install playwright browser binaries
-npx playwright install chromium
-```
-
-> If your **C: drive is full**, redirect the browser download:
-> ```powershell
-> $env:PLAYWRIGHT_BROWSERS_PATH="D:\playwright-browsers"
-> npx playwright install chromium
-> ```
-> Set that env var again before running `npm run agent`.
-
-### Step 2 — Log in to a provider
-
-```
-> /login
-
-    1)  ChatGPT       chatgpt.com
-    2)  Grok          grok.com
-    3)  Gemini        gemini.google.com
-    4)  Perplexity    perplexity.ai
-    5)  DeepSeek      chat.deepseek.com
-
-  Enter 1–5: 2
-```
-
-1. A browser window opens at the provider's site
-2. Log in to your account (handle any CAPTCHA manually)
-3. Once you see the chat interface, come back to the terminal
-4. Press **ENTER**
-5. Session is saved to `session/<provider>.json`
-
-You only do this **once per provider**. Re-run `/login` if a session expires.
-
-> **Login auto-detection:** The agent first tries to connect to a Chrome instance running with remote debugging on port 9222. If found, it uses that (best for bypassing bot protection). Otherwise it launches a new Playwright browser.
-
-### Step 3 — Create your profile (only for `/apply`)
-
-```powershell
-copy backend\data\profile.example.json backend\data\profile.json
-```
-
-Fill in `data\profile.json` — this is what the agent uses to answer application questions and log you into job portals.
-
-#### Profile Fields
-
-| Field | What to put | Required |
+| Command | Usage | Description |
 |---|---|---|
-| `name` | Your full legal name | ✅ |
-| `email` | Email address | ✅ |
-| `phone` | Phone with country code (e.g. `"+91-9999999999"`) | ✅ |
-| `city`, `state`, `country` | Location details | ✅ |
-| `address`, `postalCode` | Street address and postal/zip code | Optional |
-| `linkedin`, `github`, `portfolio` | Full URLs | Optional |
-| `yearsOfExperience` | e.g. `"2"` | ✅ |
-| `currentRole`, `desiredRole` | e.g. `"Full Stack Developer"` | ✅ |
-| `currentCTC`, `expectedCTC` | e.g. `"4 LPA"`, `"6 LPA"` | ✅ |
-| `noticePeriod` | In days, e.g. `"30"` | ✅ |
-| `reasonForLeaving` | Why you're switching jobs | Optional |
-| `skills` | Array: `["React", "Node.js", ...]` | ✅ |
-| `education` | Object: `{ degree, field, institution, year }` | ✅ |
-| `resume` | Full resume as plain text — used for open-ended questions | ✅ |
-| `resumeLastUpdated` | Date string (e.g. `"2026-06-19"`) | ✅ |
-| `resumePdfPath` | Absolute path to your resume PDF (double backslashes on Windows) | ✅ |
-| `resumePdfLastUpdated` | Date string indicating when the PDF was updated | ✅ |
-| `coverLetterStyle` | Style instructions for cover letters, e.g. `"professional and concise, under 300 words"` | Optional |
-| `workAuthorization` | e.g. `"Yes, I am authorized to work"` | Optional |
-| `requiresSponsorship` | `"Yes"` or `"No"` | Optional |
-| `gender` | e.g. `"Male"`, `"Female"`, `"Prefer not to say"` | Optional |
-| `ethnicity` | e.g. `"Asian"`, `"Prefer not to say"` | Optional |
-| `veteranStatus` | `"Yes"` or `"No"` | Optional |
-| `disabilityStatus` | `"Yes"` or `"No"` | Optional |
-| `armedForcesStatus` | Military or government employee status | Optional |
-| `hasNonCompete` | `"Yes"` or `"No"` | Optional |
-| `previouslyEmployedHere` | `"Yes"` or `"No"` | Optional |
-| `currentlyAtSubsidiary` | `"Yes"` or `"No"` | Optional |
-| `willingToRelocate` | `"Yes"` or `"No"` | Optional |
-| `legalNameSameAsPreferred` | `"Yes"` or `"No"` | Optional |
-
-> [!TIP]
-> The agent validates that `resumeLastUpdated` and `resumePdfLastUpdated` match. If they differ, `/apply` prints a warning to remind you to update your plain-text `resume` content alongside your PDF.
+| `/login` | `/login` | Open interactive menu to log into ChatGPT, Grok, Gemini, Perplexity, or DeepSeek and save session. |
+| `/model` | `/model [provider]` | Switch the active AI provider (e.g., `/model grok`, `/model deepseek`). |
+| `/browser` | `/browser [engine]` | Switch browser engine (`playwright`, `real-chrome`, `real-brave`, `real-opera`). |
+| `/chat` | `/chat` | Start interactive multi-turn terminal chat with memory. |
+| `/ask` | `/ask <question>` | One-shot question — prints the answer and returns immediately. |
+| `/council` | `/council <question>` | Concurrently queries all logged-in providers and merges their consensus. |
+| `/apply` | `/apply <job_url>` | Launch autonomous job application flow for a given URL. |
+| `/history` | `/history` | View recent job applications, verdicts, and failure reasons from the ledger. |
+| `/status` | `/status` | Display active AI provider, session validity, and selected browser engine. |
+| `/help` | `/help` | Display command help reference. |
+| `/exit` | `/exit` | Exit the CLI REPL. |
 
 ---
 
-## How `/chat` Works
+## 🔑 Session Management & Cloud Hydration
 
-```
-> /chat
-[AI] Connecting to Grok... Ready ✓
+### 1. Export Sessions as Base64 (for Cloud / Headless Deployments)
 
-  ╔══════════════════════════════════════════╗
-  ║  Grok       Chat                          ║
-  ║  All messages share memory this session  ║
-  ║  Type "exit" to return to main menu      ║
-  ╚══════════════════════════════════════════╝
+When deploying to Render, Docker, or AWS EC2, you don't need to perform interactive browser logins on the remote server:
 
-You: what is React?
-Grok: React is a JavaScript library for building user interfaces...
-────────────────────────────────────────────────────────────
+```bash
+# Log into your desired providers locally:
+npm run agent   # (run /login for each provider)
 
-You: exit
-
-  Closing chat... returning to main menu.
->
+# Export all saved sessions as clean Base64 environment strings:
+npm run export-sessions
 ```
 
-All messages in one chat session share memory. Type `exit`, `quit`, or `/exit` to return to the main console. If the session is expired, the agent will offer to re-login automatically.
-
----
-
-## How `/ask` Works
-
-One-shot mode — ask a single question, get the answer, and return to the menu without entering chat mode.
-
-```
-> /ask what is the capital of France?
-
-  Grok: The capital of France is Paris.
-
->
-```
-
----
-
-## How `/council` Works
-
-Ask the same question to **every provider you're logged into**, then have one of them merge all the answers into a single best response. A merged answer is more reliable than any single model — and it's free.
-
-```
-> /council what is the best way to learn React?
-
-  Convening council: ChatGPT, Grok, Gemini
-
-  Asking all providers (this runs in parallel)...
-
-  ────────────────────────────────────────────────────────────
-    ChatGPT
-  ────────────────────────────────────────────────────────────
-  Start with the official docs...
-
-  ────────────────────────────────────────────────────────────
-    Grok
-  ────────────────────────────────────────────────────────────
-  Build real projects from day one...
-
-    1) ChatGPT
-    2) Grok
-    3) Gemini
-
-  Which provider should merge all answers? (number, blank to skip): 1
-
-  ══════════════════════════════════════════════════════════════
-    CONSENSUS  (merged by ChatGPT)
-  ══════════════════════════════════════════════════════════════
-  The best approach combines official docs with hands-on projects...
-```
-
-- Uses **all** providers with a saved session automatically
-- Needs **at least 2** providers logged in
-- All providers are queried **in parallel** for speed
-- You choose which provider merges the final answer
-
----
-
-## How `/apply` Works
-
-```
-> /apply https://company.com/jobs/apply/123
-```
-
-The `/apply` command runs an interactive setup, then executes a fully automated job application flow.
-
-### Interactive Setup
-
-When you run `/apply`, you're prompted to configure:
-
-1. **AI Browser (Brain):** Which engine runs the AI provider (always Playwright)
-2. **Job App Browser (Hands):** Which browser fills the application form
-   - `Real Chrome` — connects to your running Chrome via CDP (port 9222)
-   - `Real Brave` — connects to your running Brave via CDP (port 9223)
-   - `Real Opera` — connects to your running Opera via CDP (port 9224)
-   - `Playwright` — launches a new automated browser
-3. **Research:** Whether to conduct company/job research before filling
-
-### The Two-Browser Architecture
-
-`/apply` opens **two browsers simultaneously**:
-
-| Browser | Role | Purpose |
-|---|---|---|
-| **Browser 1** (hidden) | Brain | Your AI provider session — reads forms, decides what to fill |
-| **Browser 2** (visible) | Hands | The job application form — fills inputs, clicks buttons |
-
-### Execution Flow
-
-```
-/apply <url>
-  │
-  ├── 1. Duplicate check (MongoDB ledger — skip if already applied successfully)
-  ├── 2. Resume version validation (warn if PDF ≠ plain text dates)
-  ├── 3. Navigate to job URL
-  ├── 4. Detect if page is the form or a landing page → navigate to form
-  ├── 5. Research (optional): extract company, role, requirements, salary, skill match
-  │
-  ├── 6. Form-filling loop (up to 40 steps):
-  │     ├── Check for CAPTCHA → pause for user if found
-  │     ├── Scrape form (aria snapshot + element list + field inventory)
-  │     ├── Check for submission confirmation → break if done
-  │     ├── Send observation to AI → receive JSON action
-  │     ├── Execute action (fill, click, select, check, upload, etc.)
-  │     ├── Track FSM state transitions (research → fill → review → submit → verify)
-  │     └── Repeat
-  │
-  ├── 7. Verify goal completion (AI checks the final page state)
-  ├── 8. Classify verdict (success / failure with reason)
-  ├── 9. Record to application ledger (MongoDB)
-  ├── 10. Save domain skill (if successful — auto-learns site quirks)
-  └── 11. Auto-retry on retryable failures (up to 3 attempts with backoff)
-```
-
-### What It Handles Automatically
-
-| Field / Action | How it handles it |
-|---|---|
-| Text fields | Name, email, phone, experience, tailored open-ended answers |
-| Dropdowns | Native `<select>` and custom ARIA combobox/listbox dropdowns |
-| Checkboxes & radios | Checks "I agree / accept terms" boxes, selects radio options |
-| File upload | Uploads your resume PDF from `resumePdfPath` |
-| Signature pad | Draws a cursive signature on canvas elements |
-| Multi-page forms | Clicks Next/Continue and keeps filling |
-| Salary questions | Quotes a market-appropriate figure from research |
-| Counter inputs | React state updating with automated increment/decrement clicks |
-| OAuth logins | Clicks "Sign in with Google" and handles popup authorization windows |
-| CAPTCHAs | Detects and pauses — beeps and waits for you to solve manually |
-| Invisible fields | Filters out hidden/phantom CAPTCHA tokens and off-screen elements |
-
-### Advanced Application Handling
-
-- **Popup & New Window OAuth:** Detects if a job site opens a "Sign in with Google" popup. Switches focus to the popup, completes the login flow, then returns to the form.
-- **Multi-Step Google Sign-In:** Traverses Email → Password → Consent → Account Chooser programmatically.
-- **Enforced Google Preference:** When faced with multiple login options, the AI is instructed to use Google Login.
-- **Smart CAPTCHA Pausing:** Detects Cloudflare challenges, reCAPTCHA, hCaptcha, and Turnstile. Pauses with a terminal beep and waits for manual solve.
-- **Form Counter Widgets:** Detects `+`/`-` button wrappers. Tries React state bypass first, falls back to sequential button clicks.
-- **Automatic JSON Safety:** Includes a robust quote sanitizer to prevent AI-generated CSS selectors from breaking JSON parsing.
-
-### Real Browser Mode
-
-Some job sites block automated browsers. Start your normal browser with remote debugging, then select it during the `/apply` interactive setup.
-
-#### Starting your browser with remote debugging:
-
-##### 🌐 Chrome
-```powershell
-# Windows
-& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
-
-# macOS
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
-```
-
-##### 🦁 Brave
-```powershell
-# Windows
-& "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe" --remote-debugging-port=9223
-
-# macOS
-/Applications/Brave\ Browser.app/Contents/MacOS/Brave\ Browser --remote-debugging-port=9223
-```
-
-##### ⭕ Opera
-```powershell
-# Windows
-& "$env:LOCALAPPDATA\Programs\Opera\opera.exe" --remote-debugging-port=9224
-
-# macOS
-/Applications/Opera.app/Contents/MacOS/Opera --remote-debugging-port=9224
-```
-
-You can also set a default browser engine from the console:
-
-```
-> /browser real-chrome
-> /browser real-brave
-> /browser real-opera
-```
-
-> Firefox is not supported because it does not use the Chrome DevTools Protocol (CDP).
-
----
-
-## The Browser Subagent (`/browser`)
-
-The Browser Subagent delegates generic natural-language tasks to an AI-controlled browser. It uses a **perceive → act → verify** loop: scrape the page → ask the AI what to do → execute → repeat until the task is complete.
-
-### Syntax
-
-```
-> /browser <task> [--hidden] [--engine=<engine>] [--provider=<provider>]
-```
-
-| Flag | Description |
-|---|---|
-| `--hidden` | Run the browser in headless mode |
-| `--engine=<engine>` | Override browser engine: `playwright`, `real-chrome`, `real-brave`, `real-opera` |
-| `--provider=<provider>` | Override AI provider: `chatgpt`, `grok`, `gemini`, `perplexity`, `deepseek` |
-
-### Examples
-
-```
-# Analyze your LinkedIn feed
-> /browser check linkedin and give me top 5 posts analyzed --engine=real-brave
-
-# Fetch news headlines
-> /browser check breaking news on timesofindia and report top 5 articles
-
-# GitHub search
-> /browser search for "playwright" on github and report the star count
-
-# Extract data from a page
-> /browser go to reddit.com/r/programming and list the top 10 posts with upvote counts
-```
-
-### Available Tools
-
-The subagent has access to these browser automation tools:
-
-| Tool | Description |
-|---|---|
-| `navigate` | Navigate to a URL |
-| `click` | Click an element by CSS selector or ref |
-| `click_blank` | Click a blank area to dismiss overlays/dropdowns |
-| `fill` | Fill a text input with a value |
-| `select` | Select a dropdown option (native or custom combobox) |
-| `check` | Check a checkbox or radio button |
-| `upload` | Upload a file via file chooser |
-| `scroll` | Scroll page (up/down) or scroll element into view |
-| `hover` | Hover over an element |
-| `press` | Press a keyboard key |
-| `wait` | Wait for a duration or for a selector to appear |
-| `read` | Re-read the page text (after scrolling) |
-| `screenshot` | Take a screenshot |
-| `extract` | Extract text from an element |
-| `handle_login` | Handle OAuth/login popups |
-| `signature` | Draw a signature on a canvas |
-| `fill_form` | Fill multiple form fields at once (batch mode) |
-| `finish` | Mark the task as complete and return a report |
-
-### Step Execution and Trace Logs
-
-Each subagent run creates a folder in `subagent_runs/`:
-
-```
-subagent_runs/
-  └── run-2026-06-21T15-34-37-447Z-f7c7go/
-        ├── report.md          # Markdown summary with verdict (✅ PASSED / ❌ FAILED)
-        ├── trace.json         # Full structured JSON trace of every step
-        ├── console.log        # Browser console and network logs
-        └── step-01-step.png   # Step-by-step screenshots
-```
-
-Additionally, structured step data is saved in `data/runs/<run-id>/`:
-
-```
-data/runs/
-  └── run-2026-06-21T15-34-37-447Z-f7c7go/
-        ├── steps.json         # Structured step data with screenshots
-        └── action-01-001.png  # Full-page action screenshots
-```
-
----
-
-## Bowser Batch Execution Mode (`/batch`)
-
-The `/batch` command enables execution of declarative sequential user-stories and workflow scripts defined in YAML format. It provides automated batch orchestration for user tasks inside our Playwright/Subagent loop.
-
-### Command Syntax
-```powershell
-# Run a batch workflow file
-> /batch workflows/test_workflow.yaml
-
-# Run a batch workflow in headless mode
-> /batch workflows/test_workflow.yaml --hidden
-```
-
-### Workflow YAML Schema Example
-```yaml
-name: "Search and Report Flow"
-steps:
-  - name: "Navigate to Search Engine"
-    action: "navigate"
-    url: "https://www.perplexity.ai"
-  - name: "Submit Research Query"
-    action: "fill"
-    selector: "textarea"
-    value: "Explain HR trends in 2026"
-  - name: "Wait for results"
-    action: "wait"
-    ms: 5000
-```
-- **Sequential Isolation**: Steps are executed sequentially in a single context sandbox, maintaining clean session state without cross-leakage.
-- **Pre-flight Checks**: Runs a direct database connection check before launching any browsers.
-
----
-
-## ScrapeGraphAI Pipeline Port
-
-We ported ScrapeGraphAI's pipelines directly to our Javascript driver to minimize token usage and enhance parsing efficiency:
-
-1. **HTML Minifier**: Automatically strips off structural clutter (e.g., `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`, `<svg>`, and advertisement containers) from the DOM before sending text context to the LLM.
-2. **JSON-LD Schema Extractor**: Pulls structured JSON-LD schemas from metadata blocks. This is used to read structured data (like salary, title, and location) instantly without incurring AI inference costs.
-3. **Plan Pre-pass**: Initiates a layout-analysis phase that maps out a structured execution plan before running actions.
-4. **4-Tier retry loops**: Incorporates a progressive 4-layered retry strategy (1. Reload page, 2. Clear input state, 3. Re-evaluate selector strategies, 4. Browser profile fallback) on step failures.
-
----
-
-## Step-Level Verification & Console Harvesting
-
-To prevent automation errors from cascading, each subagent action is checked immediately:
-
-1. **Step Verdicts**: After each action, the AI engine scans the new page state and assigns a verdict of `PASS`, `FAIL`, or `SKIPPED`.
-2. **Console Harvesting**: If a step is graded as `FAIL`, the driver harvests browser console errors and warning logs, saving them in the `steps.json` trace logs to assist debugging.
-
----
-
-## Companion YAML Workflows
-
-Upon successfully completing a task, the agent extracts the page's functional quirks and action patterns:
-
-1. **Strategy Generation**: Functional strategy summaries are saved at `workflows/<hostname>.yaml`.
-2. **Contextual Bootstrapping**: On subsequent runs to the same hostname, the agent imports this companion file as context to skip trial-and-error runs.
-
----
-
-## Advanced Customizations
-
-### Chrome-Only Auto-Profile Launching
-Configure Chrome profile folders in your environment file. When launching `real-chrome`, the launcher automatically loads the specified directory:
+This outputs variables like:
 ```env
-CHROME_PROFILE=Profile 2
+SESSION_CHATGPT_BASE64=eyJjb29raWVzIjpb...
+SESSION_GROK_BASE64=eyJjb29raWVzIjpb...
+SESSION_GEMINI_BASE64=eyJjb29raWVzIjpb...
+SESSION_DEEPSEEK_BASE64=eyJjb29raWVzIjpb...
+SESSION_PERPLEXITY_BASE64=eyJjb29raWVzIjpb...
 ```
 
-### Instant Typing Speed
-For long texts (like pasting summaries or Perplexity output), the engine bypasses standard key-by-key typing:
-- Uses `document.execCommand('insertText')` to copy-paste the text instantly.
-- Keeps editors like React, Vue, Lexical, and ProseMirror properly updated with the input state.
-- Reduces typing wait times from minutes to under 1 millisecond.
+Paste these into your cloud provider's environment variables or `.env` file. Autopilot will automatically hydrate and validate them on startup!
+
+### 2. Web UI Session Importer / Exporter
+In the **Settings** tab of the React Web UI, you can export or paste Base64 session tokens at runtime without restarting the server.
 
 ---
 
-## Architecture
-
-### Two-Browser Model
+## 🏗️ Architecture
 
 ```
-node agent.js  →  interactive REPL (slash commands)
-
-/apply   → Browser 1 (hidden, AI provider = Brain)
-         + Browser 2 (visible, job form = Hands)
-
-         research company → loop: scrape form → AI returns JSON actions → execute → repeat → submit
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             Client Layer                                    │
+│  React SPA (Vite)  │  OpenAI Python/JS SDKs  │  CLI REPL  │  noVNC GUI     │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ HTTP / WebSockets / SSE
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                       Express 5 Server & API Gateway                        │
+│   ├── /v1/chat/completions (OpenAI Compatible Endpoint)                     │
+│   ├── /api/jobs/* (Firecrawl Job Search & Resume Matcher)                   │
+│   ├── /api/apply & /api/browser (Subagent Automation Dispatcher)            │
+│   ├── /v1/solve (Universal Anti-Bot & Turnstile Solver)                     │
+│   └── /novnc & /websockify (Virtual Display Proxy)                          │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                           Core Automation Layer                             │
+│   ├── api_session_manager.js (Multi-Turn Browser Session Pool)             │
+│   ├── stealth.js (Anti-Bot, Fingerprinting, Turnstile Bypasses)            │
+│   ├── browser.js (Dual Engine Manager: Playwright vs Real Browser CDP)      │
+│   ├── providers/ (ChatGPT, Grok, Gemini, Perplexity, DeepSeek Drivers)     │
+│   ├── subagent/ (Bowser Engine, Element Relocator, Ad Blocker, IDPI)        │
+│   └── apply/ (DOM Scraper, Prompt Builder, OCR/Captcha, Ledger)            │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                           Browser Execution Layer                           │
+│   Playwright Stealth Engine    OR    Real Chrome / Brave / Opera (CDP)      │
+│   (Virtual Xvfb Display :99)         (Local User Profile & Extensions)      │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Why not use an API?** This drives your **existing logged-in account** through a real browser. No API key, no cost, no extra rate limits beyond normal usage.
+---
 
-### State Machine (FSM)
+## ⚙️ Environment Variables Reference
 
-The `/apply` flow is governed by a finite state machine (powered by [XState](https://xstate.js.org/) with a lightweight fallback):
-
-```
-research → fill → review → submit → verify
-                ↑    ↓↑
-                └────┘
-```
-
-| State | Description |
-|---|---|
-| `research` | Job/company research phase |
-| `fill` | Form filling in progress |
-| `review` | Reviewing filled fields before submission |
-| `submit` | Submit button clicked, waiting for confirmation |
-| `verify` | Final verification — AI checks if submission succeeded |
-
-### Provider Architecture
-
-Each AI provider (`src/providers/`) exports:
-- `config` — name, URL, readySelector, responseSelector, inputSelector, stopSelector
-- `sendMessage(page, text)` — sends a prompt and waits for a stable response
-
-Supported providers:
-
-| Provider | File | URL |
+| Variable | Default | Description |
 |---|---|---|
-| ChatGPT | `src/providers/chatgpt.js` | chatgpt.com |
-| Grok | `src/providers/grok.js` | grok.com |
-| Gemini | `src/providers/gemini.js` | gemini.google.com |
-| Perplexity | `src/providers/perplexity.js` | perplexity.ai |
-| DeepSeek | `src/providers/deepseek.js` | chat.deepseek.com |
-
-### Browser Engines
-
-| Engine | How it works |
-|---|---|
-| `playwright` | Launches a new Chrome via Playwright (default, self-contained) |
-| `real-chrome` | Connects to your running Chrome via CDP on port 9222 |
-| `real-brave` | Connects to your running Brave via CDP on port 9223 |
-| `real-opera` | Connects to your running Opera via CDP on port 9224 |
-
-CDP URLs can be overridden via environment variables: `REAL_CHROME_CDP_URL`, `REAL_BRAVE_CDP_URL`, `REAL_OPERA_CDP_URL`.
+| `PORT` | `3000` | Port for Express API server & Web Dashboard. |
+| `NODE_ENV` | `development` | Runtime environment (`development` or `production`). |
+| `LLM_API_KEY` | *(None)* | Optional API key to protect `/v1/*` endpoints (Bearer token). |
+| `HEADLESS` | `false` | Set `true` to run Playwright without a visible window. |
+| `DISPLAY` | `:99` (in Docker) | X11 virtual display for headless Xvfb environments. |
+| `ENABLE_VNC` | `true` (in Docker) | Enable remote noVNC browser viewing. |
+| `VNC_PORT` | `6080` | Internal port for noVNC / Websockify server. |
+| `PROXY_SERVER` | *(None)* | Residential / Datacenter proxy URL (`http://host:port` or `socks5://...`). |
+| `PROXY_USERNAME` | *(None)* | Proxy authentication username. |
+| `PROXY_PASSWORD` | *(None)* | Proxy authentication password. |
+| `FIRECRAWL_API_KEY` | *(None)* | Firecrawl API key for Web Job Search. |
+| `MONGODB_URI` | *(None)* | Optional MongoDB connection string for application ledger persistence. |
+| `SESSION_*_BASE64` | *(None)* | Base64-encoded session state for automatic startup hydration. |
 
 ---
 
-## Permissions System
+## 🐳 Deployment (Docker, Render, EC2)
 
-The file `data/permissions.json` controls which actions the agent can perform automatically vs. which require user confirmation:
+### 1. Docker Compose (Recommended)
 
-```json
-{
-  "fill_text_field": "allow",
-  "select_dropdown": "allow",
-  "oauth_login": "ask",
-  "submit_application": "ask",
-  "upload_file": "allow"
-}
+Run Autopilot in an isolated container with pre-configured Xvfb display buffer and noVNC remote GUI:
+
+```bash
+docker-compose up -d --build
 ```
+- Web UI & API: `http://localhost:3000`
+- Remote Browser GUI (noVNC): `http://localhost:3000/novnc/vnc.html`
 
-| Permission | Values | Description |
-|---|---|---|
-| `fill_text_field` | `allow` / `ask` / `deny` | Filling text inputs |
-| `select_dropdown` | `allow` / `ask` / `deny` | Selecting dropdown options |
-| `oauth_login` | `allow` / `ask` / `deny` | OAuth / Google login handling |
-| `submit_application` | `allow` / `ask` / `deny` | Clicking the final submit button |
-| `upload_file` | `allow` / `ask` / `deny` | Uploading files (resume) |
+### 2. Deploy to Render (`render.yaml`)
 
-- **`allow`** — executes automatically
-- **`ask`** — pauses and asks for confirmation in the terminal
-- **`deny`** — blocks the action entirely
+The repository includes a ready-to-use Render Blueprint:
 
----
+1. Push your repository to GitHub / GitLab.
+2. In Render Dashboard, click **New +** → **Blueprint** and connect your repository.
+3. Render will automatically configure the Docker service and attach a 1GB persistent disk at `/app/backend/session`.
+4. Add your `SESSION_*_BASE64` variables in the Render Environment tab.
 
-## Application Ledger
+### 3. Deploy to AWS EC2
 
-The agent maintains a **MongoDB database collection** (via Mongoose) to track every job application:
+Use the included automated setup script for Ubuntu EC2 instances:
 
-| Column / Field | Description |
-|---|---|
-| `url` | The job application URL |
-| `company` | Company name (from research) |
-| `role` | Job title (from research) |
-| `verdict` | `success` or `failure` |
-| `failure_reason` | Classification: `captcha`, `session_expired`, `already_applied`, `sso_required`, `form_incompatible`, `element_not_found`, `timeout`, `cloudflare_block` |
-| `run_id` | Link to the subagent run artifacts |
-| `timestamp` | ISO timestamp |
-
-**Features:**
-- **Duplicate detection:** Before applying, checks if you've already successfully applied to the same URL (or same company+role). Skips if found.
-- **Auto-retry:** Retryable failures (`element_not_found`, `timeout`) trigger up to 3 automatic retries with exponential backoff.
-- **Permanent failures:** Non-retryable reasons (`captcha`, `session_expired`, `already_applied`, `sso_required`, `form_incompatible`, `cloudflare_block`) are recorded without retry.
-
----
-
-## Domain Skills (Auto-Learning)
-
-After a **successful** application, the agent saves a "domain skill" for that job site to `domain-skills/<hostname>.json`. On future applications to the same site, the agent loads this skill to:
-
-- Reuse working selector/ref strategies
-- Remember site quirks (custom dropdowns, canvas signature pads, counter widgets)
-- Speed up form-filling by skipping trial-and-error
-
-Example domain skill:
-```json
-{
-  "hostname": "jobs.example.com",
-  "learnedAt": "2026-06-21T15:34:37.447Z",
-  "company": "Example Corp",
-  "role": "Full Stack Developer",
-  "strategy": [
-    { "tool": "fill", "args": { "selector": "#name", "value": "..." }, "result": "..." },
-    { "tool": "click", "args": { "selector": ".next-btn" }, "result": "..." }
-  ],
-  "quirks": ["custom_dropdown_handling"]
-}
+```bash
+chmod +x deploy-ec2.sh
+./deploy-ec2.sh
 ```
 
 ---
 
-## Indirect Prompt Injection Defense (IDPI)
-
-The Browser Subagent includes built-in safeguards to prevent external webpages (such as untrusted job descriptions or compromised domains) from executing **Indirect Prompt Injection** attacks (e.g. attempting to override the agent's instructions, leak system prompts, or exfiltrate session data).
-
-### Defense Mechanisms
-
-1. **Domain Whitelisting**: Restricts browser navigation to an allowed list of domains (such as target AI providers or specific job sites). Attempts to navigate to non-approved domains are flagged and can be configured to block in strict mode.
-2. **Content Scanning**: Analyzes scraped page content against standard injection payload signatures (such as *"ignore previous instructions"*, *"reveal your system prompt"*, *"send cookies"*) before it is sent to the LLM.
-3. **Delimiter Wrapping & Advisory**: Wraps untrusted webpage content inside explicit boundaries (`<untrusted_web_content url="..."> ... </untrusted_web_content>`) and prepends a safety warning. Delimiters inside the scraped text are automatically sanitized (replacing `</untrusted_web_content>` with `< /untrusted_web_content>`) to prevent the LLM from escaping the boundary.
-
----
-
-## AutoSolver & Challenge Heuristics
-
-The agent features an upgraded, heuristics-based anti-bot detection engine designed to identify browser verification challenges:
-
-- **Cloudflare Turnstile**: Checks for cdn-cgi challenge URLs and browser verification status.
-- **reCAPTCHA Enterprise & v2/v3**: Detects recaptcha execution wrappers and checkbox anchors.
-- **hCaptcha**: Identifies hCaptcha API script targets and checkbox tags.
-- **Custom JS Barriers**: Catches access-denied integrity tests and automated driver blocks.
-
-When a challenge is detected, the agent logs the specific anti-bot type, sounds a terminal beep, and pauses execution so you can solve it manually.
-
----
-
-## Project Structure
+## 📁 Project Directory Structure
 
 ```
-gpt_auth/
-├── package.json                # Dependencies and npm scripts
+├── backend/
+│   ├── agent.js                    # Interactive CLI REPL entry point
+│   ├── server.js                   # Express 5 API server & Socket.IO gateway
+│   ├── export_sessions.js          # Base64 session exporter tool
+│   ├── test_solver.js              # Anti-bot & Cloudflare solver CLI tester
+│   ├── routes/                     # Express REST routes
+│   │   ├── llm_api.js              # /v1/chat/completions, /v1/models, /v1/completions
+│   │   ├── job_finder.js           # /api/jobs/* (Search, profile, auto-apply)
+│   │   ├── solver.js               # /v1/solve (Anti-bot challenge solver)
+│   │   ├── apply.js                # /api/apply (Job apply execution)
+│   │   ├── browser.js              # /api/browser/task (Subagent task runner)
+│   │   ├── chat.js                 # /api/chat/* (Web multi-turn chat)
+│   │   ├── council.js              # /api/council (Multi-provider consensus)
+│   │   ├── history.js              # /api/history (Application ledger & stats)
+│   │   ├── providers.js            # /api/providers, /api/sessions/*
+│   │   └── status.js               # /api/status (System & engine info)
+│   ├── src/                        # Core automation modules
+│   │   ├── ai.js                   # Provider session manager & env hydration
+│   │   ├── api_session_manager.js  # Multi-turn session pool for OpenAI API
+│   │   ├── browser.js              # Browser launcher (Playwright & Real CDP)
+│   │   ├── stealth.js              # Anti-bot, Turnstile solver & mouse physics
+│   │   ├── job_finder.js           # Firecrawl search & resume match scorer
+│   │   ├── config.js               # Canonical path constants & config
+│   │   ├── apply/                  # Job application automation pipeline
+│   │   ├── providers/              # ChatGPT, Grok, Gemini, Perplexity, DeepSeek
+│   │   └── subagent/               # Bowser autonomous browser agent engine
+│   ├── data/                       # Candidate profile & application ledger
+│   └── test/                       # Node.js unit test suites
 │
-├── backend/                    # Express.js API Backend & CLI Core
-│   ├── agent.js                # CLI Entry point — interactive REPL with slash commands
-│   ├── server.js               # Web server configuration (Express + Socket.IO)
-│   ├── routes/                 # Express route handlers
-│   │   ├── apply.js            # /api/apply endpoint
-│   │   ├── ask.js              # /api/ask endpoint
-│   │   ├── browser.js          # /api/browser endpoint
-│   │   ├── chat.js             # /api/chat endpoint
-│   │   ├── council.js          # /api/council endpoint
-│   │   ├── history.js          # /api/history endpoint
-│   │   ├── providers.js        # /api/providers endpoint
-│   │   └── status.js           # /api/status endpoint
-│   │
-│   └── src/                    # Shared automation core engine
-│       ├── ai.js               # AI session management
-│       ├── browser.js          # Browser engine management
-│       ├── chat.js             # Interactive chat mode
-│       ├── config.js           # Configuration paths and helpers
-│       ├── council.js          # Multi-provider council
-│       ├── login.js            # Provider login and model selection
-│       ├── playwright-adapter.js # Playwright-to-Puppeteer API adapter
-│       │
-│       ├── providers/          # AI provider integrations (chatgpt, grok, etc.)
-│       ├── apply/              # Job application auto-filler engine
-│       └── subagent/           # Browser subagent percept-act loop
+├── frontend/                       # Modern React Single-Page Application
+│   ├── index.html                  # HTML entry point with modern typography
+│   ├── vite.config.js              # Vite configuration with backend proxy
+│   └── src/
+│       ├── App.jsx                 # Main layout, router & navigation
+│       ├── index.css               # Comprehensive dark-mode design system
+│       └── components/             # React views
+│           ├── Dashboard.jsx       # Overview & status
+│           ├── JobFinder.jsx       # Firecrawl job search & resume match
+│           ├── Chat.jsx            # Live AI chat interface
+│           ├── Apply.jsx           # Real-time job application runner
+│           ├── Browser.jsx         # Autonomous subagent task runner
+│           ├── ApiDashboard.jsx    # OpenAI API docs & interactive playground
+│           ├── History.jsx         # Application ledger & analytics charts
+│           └── Settings.jsx        # Provider, engine & session settings
 │
-├── frontend/                   # Premium Dark Theme React SPA Frontend
-│   ├── index.html              # Main frontend HTML container
-│   ├── vite.config.js          # Vite configuration
-│   ├── package.json            # React & Vite build configurations
-│   └── src/                    # React codebase
-│       ├── main.jsx            # React mount entrypoint
-│       ├── App.jsx             # React main layout shell, navigation, and state
-│       ├── index.css           # Glassmorphic custom CSS styling
-│       └── components/         # Reusable React components (Dashboard, Chat, Apply, Browser, History, Settings)
-│
-├── data/
-│   ├── profile.example.json    # Example profile template
-│   ├── profile.json            # Your personal profile (gitignored)
-│   ├── permissions.json        # Action permission policy
-│   ├── resume.pdf              # Your resume PDF (gitignored)
-│   └── runs/                   # Structured step data per run (MongoDB records history)
-│
-├── session/                    # Provider session files (gitignored)
-│   ├── active.json             # Currently active provider
-│   ├── session.json            # ChatGPT session (legacy name)
-│   ├── grok.json               # Grok session
-│   ├── gemini.json             # Gemini session
-│   └── browser.json            # Browser engine preference
-│
-├── subagent_runs/              # Subagent run artifacts (gitignored)
-├── domain-skills/              # Learned domain strategies (auto-created)
-│
-├── test/                       # Unit tests (Node.js built-in test runner)
-│   ├── dropdown.test.js
-│   ├── completion.test.js
-│   ├── apply-prompt.test.js
-│   └── selector.test.js
-│
-└── tests/
-    └── fixtures/               # Playwright fixture tests
+├── Dockerfile                      # Production Playwright + Xvfb + noVNC image
+├── docker-compose.yml              # Multi-port container orchestration
+├── docker-entrypoint.sh            # Xvfb virtual display & fluxbox initializer
+├── render.yaml                     # Render Cloud deployment blueprint
+├── deploy-ec2.sh                   # AWS EC2 Ubuntu automated installer
+└── package.json                    # Workspace root scripts
 ```
 
 ---
 
-## Testing
+## 🧪 Testing
 
-### Unit Tests
+Run backend unit test suites:
 
-```powershell
-npm test
+```bash
+# Run unit tests (dropdowns, completion, selectors, failure taxonomy)
+npm run test --prefix backend
+
+# Test anti-bot solver against a live URL:
+node backend/test_solver.js https://nowsecure.nl --visible
 ```
-
-Runs unit tests using Node.js built-in test runner:
-- `test/dropdown.test.js` — Dropdown placeholder detection
-- `test/completion.test.js` — Submission confirmation detection
-- `test/apply-prompt.test.js` — AI prompt construction and JSON sanitization
-- `test/selector.test.js` — CSS selector utilities
-
-### Fixture Tests
-
-```powershell
-npm run test:fixtures
-```
-
-Runs Playwright-based fixture tests from `tests/fixtures/`.
 
 ---
 
-## Troubleshooting
+## ❓ Troubleshooting & FAQs
 
-**"Login expired" right after logging in**
-The provider's input selector may have drifted (their UI changed). Your session is probably fine — open the site, inspect the input box, and update the `readySelector` in `src/providers/<provider>.js`.
+<details>
+<summary><b>1. "Session expired or challenge encountered" error on startup</b></summary>
+<br>
+AI providers occasionally refresh authentication cookies or trigger Cloudflare checks:
+- If running locally: run <code>npm run agent</code> and type <code>/login</code> to refresh your session.
+- If running on Docker / Render: set <code>HEADLESS=false</code> and open <code>http://localhost:3000/novnc/vnc.html</code> to solve any interactive prompt or 2FA request in the virtual display.
+</details>
 
-**Agent gets stuck on a CAPTCHA**
-Check your terminal! The agent will detect CAPTCHAs and ask you to press `ENTER` once you have manually solved the challenge in the visible browser window.
+<details>
+<summary><b>2. How to connect a Real Browser (Chrome / Brave / Opera) instead of Playwright?</b></summary>
+<br>
+Real browsers allow you to bypass strict bot detection and use your personal extensions and Google OAuth logins:
+1. Start your browser with remote debugging enabled:
+   - <b>Chrome</b>: <code>chrome.exe --remote-debugging-port=9222</code>
+   - <b>Brave</b>: <code>brave.exe --remote-debugging-port=9223</code>
+   - <b>Opera</b>: <code>opera.exe --remote-debugging-port=9224</code>
+2. In Autopilot CLI, type <code>/browser real-chrome</code> (or select it in the Web UI Settings tab).
+</details>
 
-**Resume PDF not uploading**
-Check `resumePdfPath` in `data/profile.json` is a real path with double backslashes on Windows: `"D:\\Docs\\resume.pdf"`.
-
-**MongoDB connection issues / status disconnected**
-Make sure your MongoDB server is running (if local) or your connection string in `backend/.env` is correct. If you are using MongoDB Atlas, make sure your current IP address is whitelisted in the Atlas console.
-
-**Real browser won't connect**
-If Chrome/Brave/Opera is already running, close **all** windows/processes first, then restart with the `--remote-debugging-port` flag. Existing browser processes ignore new debugging flags.
-
-**AI response timed out**
-The provider may be slow or the stop button may be "stuck." The agent includes a deadlock protection: after ~16 seconds of a stuck stop button, it ignores it and returns whatever text is available.
+<details>
+<summary><b>3. Avoiding datacenter IP blocks when deployed in the cloud</b></summary>
+<br>
+Cloud providers (AWS, DigitalOcean, Render) often have datacenter IP ranges flagged by Cloudflare. Configure a residential proxy in <code>backend/.env</code>:
+<pre>
+PROXY_SERVER=http://proxy.example.com:8000
+PROXY_USERNAME=user123
+PROXY_PASSWORD=pass123
+</pre>
+Autopilot will route all browser traffic through the proxy while keeping the API endpoints fast.
+</details>
 
 ---
 
-## License
+## 📄 License
 
-MIT
+This project is licensed under the [MIT License](LICENSE).

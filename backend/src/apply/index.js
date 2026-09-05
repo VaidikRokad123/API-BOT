@@ -126,3 +126,6 @@ export async function apply(jobUrl, visible = true, options = {}) {
 
   return result;
 }
+
+export { apply as startApplyFlow };
+
